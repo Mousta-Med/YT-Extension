@@ -63,7 +63,80 @@ class YouTubeGlobalControls {
         this.isYouTubeTabActive = false;
       }
     } catch (error) {
-      console.error('Error finding YouTube tabs:', error);
+      // Silent error handling as requested
+    }
+  }
+
+  async openYouTubeTab() {
+    try {
+      const tab = await chrome.tabs.create({
+        url: 'https://www.youtube.com',
+        active: true
+      });
+      this.youtubeTabId = tab.id;
+      this.isYouTubeTabActive = true;
+    } catch (error) {
+      // Silent error handling as requested
+    }
+  }
+
+  async goToYouTubeTabAndReload() {
+    try {
+      if (this.youtubeTabId) {
+        // Reload the YouTube tab without switching to it
+        await chrome.tabs.reload(this.youtubeTabId);
+      } else {
+        // If no YouTube tab, find one or create one
+        await this.findActiveYouTubeTab();
+        if (this.youtubeTabId) {
+          await chrome.tabs.reload(this.youtubeTabId);
+        } else {
+          await this.openYouTubeTab();
+        }
+      }
+    } catch (error) {
+      // Silent error handling as requested
+    }
+  }
+
+  async showYouTubeRequiredAlert() {
+    try {
+      // Get the current active tab
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (activeTab) {
+        // Try to inject script to show alert on the current page
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: activeTab.id },
+            func: () => {
+              alert('You have to play a YouTube video first');
+            }
+          });
+        } catch (scriptError) {
+          // If script injection fails, use notification as fallback
+          this.showNotification();
+        }
+      } else {
+        // No active tab, use notification
+        this.showNotification();
+      }
+    } catch (error) {
+      // Fallback to notification
+      this.showNotification();
+    }
+  }
+
+  showNotification() {
+    try {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        title: 'YouTube Global Controls',
+        message: 'You have to play a YouTube video first'
+      });
+    } catch (notificationError) {
+      // Silent error handling as requested
     }
   }
 
@@ -73,7 +146,8 @@ class YouTubeGlobalControls {
     }
 
     if (!this.youtubeTabId) {
-      console.log('No active YouTube tab found');
+      // Show alert that user must open YouTube first
+      await this.showYouTubeRequiredAlert();
       return;
     }
 
@@ -82,18 +156,8 @@ class YouTubeGlobalControls {
         action: command
       });
     } catch (error) {
-      console.error(`Error executing command ${command}:`, error);
-      // Tab might be closed or navigated away, try to find another YouTube tab
-      await this.findActiveYouTubeTab();
-      if (this.youtubeTabId) {
-        try {
-          await chrome.tabs.sendMessage(this.youtubeTabId, {
-            action: command
-          });
-        } catch (retryError) {
-          console.error(`Retry failed for command ${command}:`, retryError);
-        }
-      }
+      // Connection not established - go to YouTube tab and reload it
+      await this.goToYouTubeTabAndReload();
     }
   }
 }

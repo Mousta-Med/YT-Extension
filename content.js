@@ -50,7 +50,7 @@ class YouTubeController {
     chrome.runtime.sendMessage({
       action: 'youtube-tab-ready'
     }).catch(error => {
-      console.log('Background script not ready yet:', error);
+      // Silent error handling as requested
     });
   }
 
