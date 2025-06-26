@@ -131,7 +131,7 @@ class YouTubeGlobalControls {
     try {
       chrome.notifications.create({
         type: 'basic',
-        iconUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        iconUrl: 'icon48.png',
         title: 'YouTube Global Controls',
         message: 'You have to play a YouTube video first'
       });

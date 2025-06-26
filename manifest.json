@@ -3,6 +3,11 @@
   "name": "YouTube Global Controls",
   "version": "1.0.0",
   "description": "Global keyboard shortcuts to control YouTube playback and Picture-in-Picture mode",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "permissions": [
     "activeTab",
     "tabs",
