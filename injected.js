@@ -65,6 +65,9 @@
         case 'previous':
           this.previousVideo();
           break;
+        case 'backward-10s':
+          this.skipBackward10s();
+          break;
       }
     }
 
@@ -135,6 +138,27 @@
         if (prevBtn && !prevBtn.disabled) {
           prevBtn.click();
         }
+      }
+    }
+
+    skipBackward10s() {
+      const video = document.querySelector('video');
+      if (!video) return;
+
+      try {
+        // Use YouTube player API if available
+        if (this.player && this.player.getCurrentTime && this.player.seekTo) {
+          const currentTime = this.player.getCurrentTime();
+          const newTime = Math.max(0, currentTime - 10);
+          this.player.seekTo(newTime, true);
+          console.log('Skipped backward 10 seconds via YouTube API');
+        } else {
+          // Fallback to direct video manipulation
+          video.currentTime = Math.max(0, video.currentTime - 10);
+          console.log('Skipped backward 10 seconds via video element');
+        }
+      } catch (error) {
+        console.error('Error skipping backward:', error);
       }
     }
   }
