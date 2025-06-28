@@ -72,6 +72,8 @@ class YouTubeController {
           return this.previousVideo();
         case 'backward-10s':
           return this.skipBackward10s();
+        case 'forward-10s':
+          return this.skipForward10s();
         default:
           console.log('Unknown command:', command);
           return false;
@@ -173,6 +175,26 @@ class YouTubeController {
       // Fallback: try keyboard shortcut (left arrow key)
       this.simulateKeyPress('ArrowLeft');
       console.log('Backward skip (keyboard shortcut)');
+      return true;
+    }
+  }
+
+  skipForward10s() {
+    if (!this.video) {
+      console.log('Video element not found');
+      return false;
+    }
+
+    try {
+      // Skip forward 10 seconds
+      this.video.currentTime = Math.min(this.video.duration || Infinity, this.video.currentTime + 10);
+      console.log('Skipped forward 10 seconds');
+      return true;
+    } catch (error) {
+      console.error('Error skipping forward:', error);
+      // Fallback: try keyboard shortcut (right arrow key)
+      this.simulateKeyPress('ArrowRight');
+      console.log('Forward skip (keyboard shortcut)');
       return true;
     }
   }
