@@ -52,6 +52,13 @@
         "mac": "Command+Shift+Left"
       },
       "description": "Skip backward 10 seconds"
+    },
+    "forward-10s": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Right",
+        "mac": "Command+Shift+Right"
+      },
+      "description": "Skip forward 10 seconds"
     }
   },
   "web_accessible_resources": [
