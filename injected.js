@@ -68,6 +68,9 @@
         case 'backward-10s':
           this.skipBackward10s();
           break;
+        case 'forward-10s':
+          this.skipForward10s();
+          break;
       }
     }
 
@@ -159,6 +162,28 @@
         }
       } catch (error) {
         console.error('Error skipping backward:', error);
+      }
+    }
+
+    skipForward10s() {
+      const video = document.querySelector('video');
+      if (!video) return;
+
+      try {
+        // Use YouTube player API if available
+        if (this.player && this.player.getCurrentTime && this.player.seekTo && this.player.getDuration) {
+          const currentTime = this.player.getCurrentTime();
+          const duration = this.player.getDuration();
+          const newTime = Math.min(duration, currentTime + 10);
+          this.player.seekTo(newTime, true);
+          console.log('Skipped forward 10 seconds via YouTube API');
+        } else {
+          // Fallback to direct video manipulation
+          video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
+          console.log('Skipped forward 10 seconds via video element');
+        }
+      } catch (error) {
+        console.error('Error skipping forward:', error);
       }
     }
   }
