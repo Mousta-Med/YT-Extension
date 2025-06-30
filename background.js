@@ -12,6 +12,16 @@ class YouTubeGlobalControls {
       this.handleCommand(command);
     });
 
+    // Listen for notification clicks
+    chrome.notifications.onClicked.addListener((notificationId) => {
+      this.handleNotificationClick(notificationId);
+    });
+
+    // Listen for notification button clicks
+    chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+      this.handleNotificationClick(notificationId);
+    });
+
     // Track YouTube tabs
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       if (changeInfo.status === 'complete' && this.isYouTubeUrl(tab.url)) {
@@ -100,40 +110,30 @@ class YouTubeGlobalControls {
   }
 
   async showYouTubeRequiredAlert() {
-    try {
-      // Get the current active tab
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      if (activeTab) {
-        // Try to inject script to show alert on the current page
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            func: () => {
-              alert('You have to play a YouTube video first');
-            }
-          });
-        } catch (scriptError) {
-          // If script injection fails, use notification as fallback
-          this.showNotification();
-        }
-      } else {
-        // No active tab, use notification
-        this.showNotification();
-      }
-    } catch (error) {
-      // Fallback to notification
-      this.showNotification();
-    }
+    // Always use notification for consistency and clickability
+    this.showNotification('You have to play a YouTube video first', 'youtube-required');
   }
 
-  showNotification() {
+  async showVideoNotLoadedAlert() {
+    // Always use notification for consistency and clickability
+    this.showNotificationVideoNotLoaded();
+  }
+
+  async showVideoNotRunningAlert() {
+    // Always use notification for consistency and clickability
+    this.showNotificationVideoNotRunning();
+  }
+
+  showNotification(message = 'You have to play a YouTube video first', notificationId = 'youtube-controls') {
     try {
-      chrome.notifications.create({
+      chrome.notifications.create(notificationId, {
         type: 'basic',
         iconUrl: 'icon48.png',
         title: 'YouTube Global Controls',
-        message: 'You have to play a YouTube video first'
+        message: message,
+        buttons: [
+          { title: 'Go to YouTube' }
+        ]
       });
     } catch (notificationError) {
       // Silent error handling as requested
@@ -152,12 +152,125 @@ class YouTubeGlobalControls {
     }
 
     try {
+      // First check if the video is running/loaded
+      const videoState = await this.checkVideoState();
+      
+      if (!videoState.isLoaded) {
+        await this.showVideoNotLoadedAlert();
+        return;
+      }
+      
+      if (!videoState.isRunning && this.requiresRunningVideo(command)) {
+        await this.showVideoNotRunningAlert();
+        return;
+      }
+
       await chrome.tabs.sendMessage(this.youtubeTabId, {
         action: command
       });
     } catch (error) {
       // Connection not established - go to YouTube tab and reload it
       await this.goToYouTubeTabAndReload();
+    }
+  }
+
+  async checkVideoState() {
+    try {
+      const response = await chrome.tabs.sendMessage(this.youtubeTabId, {
+        action: 'check-video-state'
+      });
+      return response || { isLoaded: false, isRunning: false };
+    } catch (error) {
+      return { isLoaded: false, isRunning: false };
+    }
+  }
+
+  requiresRunningVideo(command) {
+    // Commands that require a video to be actually playing/running
+    const runningRequiredCommands = [
+      'backward-10s',
+      'forward-10s',
+      'toggle-pip'
+    ];
+    return runningRequiredCommands.includes(command);
+  }
+
+  showNotificationVideoNotLoaded() {
+    try {
+      chrome.notifications.create('video-not-loaded', {
+        type: 'basic',
+        iconUrl: 'icon48.png',
+        title: 'YouTube Global Controls',
+        message: 'YouTube video is not loaded. Please visit the YouTube tab and load a video first.',
+        buttons: [
+          { title: 'Go to YouTube' }
+        ]
+      });
+    } catch (notificationError) {
+      // Silent error handling as requested
+    }
+  }
+
+  showNotificationVideoNotRunning() {
+    try {
+      chrome.notifications.create('video-not-running', {
+        type: 'basic',
+        iconUrl: 'icon48.png',
+        title: 'YouTube Global Controls',
+        message: 'YouTube video is not running. Please start playing a video first.',
+        buttons: [
+          { title: 'Go to YouTube' }
+        ]
+      });
+    } catch (notificationError) {
+      // Silent error handling as requested
+    }
+  }
+
+  async handleNotificationClick(notificationId) {
+    try {
+      // Clear the notification
+      chrome.notifications.clear(notificationId);
+      
+      // Navigate to YouTube
+      await this.navigateToYouTube();
+    } catch (error) {
+      // Silent error handling as requested
+    }
+  }
+
+  async navigateToYouTube() {
+    try {
+      if (this.youtubeTabId) {
+        // Switch to existing YouTube tab
+        await chrome.tabs.update(this.youtubeTabId, { active: true });
+        
+        // Bring the window to front
+        const tab = await chrome.tabs.get(this.youtubeTabId);
+        await chrome.windows.update(tab.windowId, { focused: true });
+      } else {
+        // Find any YouTube tab
+        await this.findActiveYouTubeTab();
+        
+        if (this.youtubeTabId) {
+          // Switch to found YouTube tab
+          await chrome.tabs.update(this.youtubeTabId, { active: true });
+          
+          // Bring the window to front
+          const tab = await chrome.tabs.get(this.youtubeTabId);
+          await chrome.windows.update(tab.windowId, { focused: true });
+        } else {
+          // Create new YouTube tab
+          await this.openYouTubeTab();
+        }
+      }
+    } catch (error) {
+      // Fallback: just open a new YouTube tab
+      try {
+        await this.openYouTubeTab();
+      } catch (fallbackError) {
+        // Silent error handling as requested
+      }
     }
   }
 }
