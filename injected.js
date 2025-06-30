@@ -41,8 +41,68 @@
           return;
         }
         
-        this.handlePageCommand(event.data.command);
+        if (event.data.command === 'get-player-state') {
+          const state = this.getPlayerState();
+          window.postMessage({
+            type: 'YOUTUBE_CONTROL_RESPONSE',
+            state: state
+          }, '*');
+        } else {
+          this.handlePageCommand(event.data.command);
+        }
       });
+    }
+
+    getPlayerState() {
+      const video = document.querySelector('video');
+      let playerState = {
+        isLoaded: false,
+        isRunning: false,
+        currentTime: 0,
+        duration: 0,
+        paused: true,
+        ended: false,
+        readyState: 0,
+        playerReady: false
+      };
+
+      if (video) {
+        playerState.isLoaded = video.readyState >= 2 && (video.src || video.currentSrc);
+        playerState.isRunning = !video.paused && !video.ended && video.currentTime > 0;
+        playerState.currentTime = video.currentTime;
+        playerState.duration = video.duration || 0;
+        playerState.paused = video.paused;
+        playerState.ended = video.ended;
+        playerState.readyState = video.readyState;
+      }
+
+      // Enhanced state using YouTube player API if available
+      if (this.player) {
+        try {
+          playerState.playerReady = true;
+          
+          if (this.player.getPlayerState) {
+            const state = this.player.getPlayerState();
+            // YouTube player states: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
+            playerState.isRunning = state === 1; // Playing
+            playerState.paused = state === 2; // Paused
+            playerState.ended = state === 0; // Ended
+            playerState.isLoaded = state !== -1; // Not unstarted
+          }
+          
+          if (this.player.getCurrentTime) {
+            playerState.currentTime = this.player.getCurrentTime();
+          }
+          
+          if (this.player.getDuration) {
+            playerState.duration = this.player.getDuration();
+          }
+        } catch (error) {
+          console.log('Error getting YouTube player state:', error);
+        }
+      }
+
+      return playerState;
     }
 
     handlePageCommand(command) {
