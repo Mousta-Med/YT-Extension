@@ -6,6 +6,7 @@ class YouTubeController {
     this.setupVideoDetection();
     this.setupMessageListener();
     this.injectVideoScript();
+    this.setupEnhancedStateListener();
   }
 
   setupVideoDetection() {
@@ -40,8 +41,13 @@ class YouTubeController {
 
   setupMessageListener() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      this.handleCommand(message.action);
-      sendResponse({ success: true });
+      if (message.action === 'check-video-state') {
+        const videoState = this.getEnhancedVideoState();
+        sendResponse(videoState);
+      } else {
+        const result = this.handleCommand(message.action);
+        sendResponse({ success: result });
+      }
       return true;
     });
   }
@@ -54,9 +60,71 @@ class YouTubeController {
     });
   }
 
+  getVideoState() {
+    if (!this.video) {
+      return { isLoaded: false, isRunning: false };
+    }
+
+    const isLoaded = this.video.readyState >= 2; // HAVE_CURRENT_DATA or higher
+    const isRunning = !this.video.paused && !this.video.ended && this.video.currentTime > 0;
+    const hasValidSrc = this.video.src || this.video.currentSrc;
+
+    let videoState = {
+      isLoaded: isLoaded && hasValidSrc,
+      isRunning: isRunning,
+      currentTime: this.video.currentTime,
+      duration: this.video.duration,
+      paused: this.video.paused,
+      ended: this.video.ended,
+      readyState: this.video.readyState
+    };
+
+    // Try to get enhanced state from injected script
+    try {
+      window.postMessage({
+        type: 'YOUTUBE_CONTROL',
+        command: 'get-player-state'
+      }, '*');
+      
+      // Note: This is async but we return the basic state immediately
+      // The enhanced state will be available for future calls
+    } catch (error) {
+      // Silently handle errors
+    }
+
+    return videoState;
+  }
+
+  setupEnhancedStateListener() {
+    // Listen for enhanced state from injected script
+    window.addEventListener('message', (event) => {
+      if (event.source !== window || event.data.type !== 'YOUTUBE_CONTROL_RESPONSE') {
+        return;
+      }
+      
+      // Store enhanced state for future use
+      this.enhancedVideoState = event.data.state;
+    });
+  }
+
+  getEnhancedVideoState() {
+    // Return enhanced state if available, otherwise fall back to basic state
+    if (this.enhancedVideoState) {
+      return this.enhancedVideoState;
+    }
+    return this.getVideoState();
+  }
+
   handleCommand(command) {
     if (!this.video) {
       console.log('Video element not found');
+      return false;
+    }
+
+    // Check if video is loaded for commands that need it
+    const videoState = this.getEnhancedVideoState();
+    if (!videoState.isLoaded) {
+      console.log('Video not loaded, cannot execute command:', command);
       return false;
     }
 
