@@ -24,7 +24,7 @@ class YouTubeGlobalControls {
 
     // Track YouTube tabs
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      if (changeInfo.status === 'complete' && this.isYouTubeUrl(tab.url)) {
+      if (changeInfo.status === 'complete' && tab.url && tab.url.includes('youtube.com')) {
         this.youtubeTabId = tabId;
         this.isYouTubeTabActive = true;
       }
@@ -58,14 +58,27 @@ class YouTubeGlobalControls {
     return url && (url.includes('youtube.com/watch') || url.includes('youtube.com/shorts'));
   }
 
+  isYouTubeVideoUrl(url) {
+    return url && (url.includes('youtube.com/watch') || url.includes('youtube.com/shorts'));
+  }
+
+  isYouTubeHomeUrl(url) {
+    return url && (url.includes('youtube.com') && !this.isYouTubeVideoUrl(url));
+  }
+
   async findActiveYouTubeTab() {
     try {
       const tabs = await chrome.tabs.query({});
-      const youTubeTabs = tabs.filter(tab => this.isYouTubeUrl(tab.url));
+      // Find any YouTube tab (video pages, home page, etc.)
+      const youTubeTabs = tabs.filter(tab => tab.url && tab.url.includes('youtube.com'));
       
       if (youTubeTabs.length > 0) {
+        // Prefer video tabs first, then any YouTube tab
+        const videoTabs = youTubeTabs.filter(tab => this.isYouTubeVideoUrl(tab.url));
+        const tabsToConsider = videoTabs.length > 0 ? videoTabs : youTubeTabs;
+        
         // Prefer the most recently active YouTube tab
-        const sortedTabs = youTubeTabs.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+        const sortedTabs = tabsToConsider.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
         this.youtubeTabId = sortedTabs[0].id;
         this.isYouTubeTabActive = true;
       } else {
@@ -242,25 +255,41 @@ class YouTubeGlobalControls {
   async navigateToYouTube() {
     try {
       if (this.youtubeTabId) {
-        // Switch to existing YouTube tab
-        await chrome.tabs.update(this.youtubeTabId, { active: true });
-        
-        // Bring the window to front
+        // Get the current tab info to check its URL
         const tab = await chrome.tabs.get(this.youtubeTabId);
-        await chrome.windows.update(tab.windowId, { focused: true });
+        
+        // Check if the tab is on a video page (watch or shorts)
+        if (this.isYouTubeVideoUrl(tab.url)) {
+          // Tab is on a video page - navigate to it AND reload it
+          await chrome.tabs.update(this.youtubeTabId, { active: true });
+          await chrome.windows.update(tab.windowId, { focused: true });
+          await chrome.tabs.reload(this.youtubeTabId);
+        } else {
+          // Tab is on YouTube but not a video page (home page, etc.) - just navigate to it
+          await chrome.tabs.update(this.youtubeTabId, { active: true });
+          await chrome.windows.update(tab.windowId, { focused: true });
+        }
       } else {
         // Find any YouTube tab
         await this.findActiveYouTubeTab();
         
         if (this.youtubeTabId) {
-          // Switch to found YouTube tab
-          await chrome.tabs.update(this.youtubeTabId, { active: true });
-          
-          // Bring the window to front
+          // Get the found tab info to check its URL
           const tab = await chrome.tabs.get(this.youtubeTabId);
-          await chrome.windows.update(tab.windowId, { focused: true });
+          
+          // Check if the found tab is on a video page
+          if (this.isYouTubeVideoUrl(tab.url)) {
+            // Tab is on a video page - navigate to it AND reload it
+            await chrome.tabs.update(this.youtubeTabId, { active: true });
+            await chrome.windows.update(tab.windowId, { focused: true });
+            await chrome.tabs.reload(this.youtubeTabId);
+          } else {
+            // Tab is on YouTube but not a video page - just navigate to it
+            await chrome.tabs.update(this.youtubeTabId, { active: true });
+            await chrome.windows.update(tab.windowId, { focused: true });
+          }
         } else {
-          // Create new YouTube tab
+          // Create new YouTube tab (will go to home page by default)
           await this.openYouTubeTab();
         }
       }
