@@ -1,4 +1,4 @@
-// Injected script that runs in the page context for enhanced YouTube control
+// Injected script for enhanced YouTube control
 (function() {
   'use strict';
 
@@ -6,202 +6,26 @@
     constructor() {
       this.player = null;
       this.setupPlayerDetection();
-      this.setupMessageBridge();
     }
 
     setupPlayerDetection() {
-      // Wait for YouTube player API
       const waitForPlayer = () => {
+        // Try to get YouTube player API
         if (window.yt && window.yt.player && window.yt.player.getPlayerByElement) {
           const playerElement = document.querySelector('#movie_player');
           if (playerElement) {
             this.player = window.yt.player.getPlayerByElement(playerElement);
             if (this.player) {
-              console.log('YouTube player API detected');
-              return;
+              return; // Player found
             }
           }
         }
         
-        // Fallback: check for player in global scope
-        if (window.ytplayer && window.ytplayer.config) {
-          console.log('YouTube player config detected');
-        }
-        
-        setTimeout(waitForPlayer, 500);
+        // Keep checking for player
+        setTimeout(waitForPlayer, 1000);
       };
       
       waitForPlayer();
-    }
-
-    setupMessageBridge() {
-      // Listen for messages from content script
-      window.addEventListener('message', (event) => {
-        if (event.source !== window || !event.data.type === 'YOUTUBE_CONTROL') {
-          return;
-        }
-        
-        if (event.data.command === 'get-player-state') {
-          const state = this.getPlayerState();
-          window.postMessage({
-            type: 'YOUTUBE_CONTROL_RESPONSE',
-            state: state
-          }, '*');
-        } else {
-          this.handlePageCommand(event.data.command);
-        }
-      });
-    }
-
-    getPlayerState() {
-      const video = document.querySelector('video');
-      let playerState = {
-        isLoaded: false,
-        isRunning: false,
-        currentTime: 0,
-        duration: 0,
-        paused: true,
-        ended: false,
-        readyState: 0,
-        playerReady: false
-      };
-
-      if (video) {
-        playerState.isLoaded = video.readyState >= 2 && (video.src || video.currentSrc);
-        playerState.isRunning = !video.paused && !video.ended && video.currentTime > 0;
-        playerState.currentTime = video.currentTime;
-        playerState.duration = video.duration || 0;
-        playerState.paused = video.paused;
-        playerState.ended = video.ended;
-        playerState.readyState = video.readyState;
-      }
-
-      // Enhanced state using YouTube player API if available
-      if (this.player) {
-        try {
-          playerState.playerReady = true;
-          
-          if (this.player.getPlayerState) {
-            const state = this.player.getPlayerState();
-            // YouTube player states: -1=unstarted, 0=ended, 1=playing, 2=paused, 3=buffering, 5=cued
-            playerState.isRunning = state === 1; // Playing
-            playerState.paused = state === 2; // Paused
-            playerState.ended = state === 0; // Ended
-            playerState.isLoaded = state !== -1; // Not unstarted
-          }
-          
-          if (this.player.getCurrentTime) {
-            playerState.currentTime = this.player.getCurrentTime();
-          }
-          
-          if (this.player.getDuration) {
-            playerState.duration = this.player.getDuration();
-          }
-        } catch (error) {
-          console.log('Error getting YouTube player state:', error);
-        }
-      }
-
-      return playerState;
-    }
-
-    handlePageCommand(command) {
-      switch (command) {
-        case 'play':
-          this.playVideo();
-          break;
-        case 'pause':
-          this.pauseVideo();
-          break;
-        case 'toggle':
-          this.togglePlayPause();
-          break;
-        case 'pip':
-          this.enterPictureInPicture();
-          break;
-        case 'next':
-          this.nextVideo();
-          break;
-        case 'previous':
-          this.previousVideo();
-          break;
-        case 'backward-10s':
-          this.skipBackward10s();
-          break;
-        case 'forward-10s':
-          this.skipForward10s();
-          break;
-      }
-    }
-
-    playVideo() {
-      if (this.player && this.player.playVideo) {
-        this.player.playVideo();
-      } else {
-        // Fallback to DOM method
-        const video = document.querySelector('video');
-        if (video) video.play();
-      }
-    }
-
-    pauseVideo() {
-      if (this.player && this.player.pauseVideo) {
-        this.player.pauseVideo();
-      } else {
-        // Fallback to DOM method
-        const video = document.querySelector('video');
-        if (video) video.pause();
-      }
-    }
-
-    togglePlayPause() {
-      const video = document.querySelector('video');
-      if (!video) return;
-
-      if (video.paused) {
-        this.playVideo();
-      } else {
-        this.pauseVideo();
-      }
-    }
-
-    async enterPictureInPicture() {
-      const video = document.querySelector('video');
-      if (!video) return;
-
-      try {
-        if (document.pictureInPictureElement) {
-          await document.exitPictureInPicture();
-        } else {
-          await video.requestPictureInPicture();
-        }
-      } catch (error) {
-        console.error('PiP error:', error);
-      }
-    }
-
-    nextVideo() {
-      if (this.player && this.player.nextVideo) {
-        this.player.nextVideo();
-      } else {
-        // Try clicking next button
-        const nextBtn = document.querySelector('.ytp-next-button');
-        if (nextBtn && !nextBtn.disabled) {
-          nextBtn.click();
-        }
-      }
-    }
-
-    previousVideo() {
-      if (this.player && this.player.previousVideo) {
-        this.player.previousVideo();
-      } else {
-        // Try clicking previous button  
-        const prevBtn = document.querySelector('.ytp-prev-button');
-        if (prevBtn && !prevBtn.disabled) {
-          prevBtn.click();
-        }
-      }
     }
 
     skipBackward10s() {
@@ -209,19 +33,16 @@
       if (!video) return;
 
       try {
-        // Use YouTube player API if available
         if (this.player && this.player.getCurrentTime && this.player.seekTo) {
           const currentTime = this.player.getCurrentTime();
           const newTime = Math.max(0, currentTime - 10);
           this.player.seekTo(newTime, true);
-          console.log('Skipped backward 10 seconds via YouTube API');
         } else {
-          // Fallback to direct video manipulation
           video.currentTime = Math.max(0, video.currentTime - 10);
-          console.log('Skipped backward 10 seconds via video element');
         }
       } catch (error) {
-        console.error('Error skipping backward:', error);
+        // Fallback to video element
+        video.currentTime = Math.max(0, video.currentTime - 10);
       }
     }
 
@@ -230,63 +51,22 @@
       if (!video) return;
 
       try {
-        // Use YouTube player API if available
         if (this.player && this.player.getCurrentTime && this.player.seekTo && this.player.getDuration) {
           const currentTime = this.player.getCurrentTime();
           const duration = this.player.getDuration();
           const newTime = Math.min(duration, currentTime + 10);
           this.player.seekTo(newTime, true);
-          console.log('Skipped forward 10 seconds via YouTube API');
         } else {
-          // Fallback to direct video manipulation
           video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
-          console.log('Skipped forward 10 seconds via video element');
         }
       } catch (error) {
-        console.error('Error skipping forward:', error);
+        // Fallback to video element
+        video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
       }
     }
   }
 
-  // Enhanced video element detection
-  function enhanceVideoControls() {
-    const video = document.querySelector('video');
-    if (!video) return;
-
-    // Add custom properties for better control
-    if (!video._ytGlobalControlsEnhanced) {
-      video._ytGlobalControlsEnhanced = true;
-      
-      // Override play/pause methods for better tracking
-      const originalPlay = video.play.bind(video);
-      const originalPause = video.pause.bind(video);
-      
-      video.play = function() {
-        console.log('Video play triggered via enhanced controls');
-        return originalPlay();
-      };
-      
-      video.pause = function() {
-        console.log('Video pause triggered via enhanced controls');
-        return originalPause();
-      };
-    }
-  }
-
-  // Initialize enhanced controls
-  const pageController = new YouTubePageController();
-  
-  // Set up periodic enhancement
-  setInterval(enhanceVideoControls, 2000);
-  
-  // Initial enhancement
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', enhanceVideoControls);
-  } else {
-    enhanceVideoControls();
-  }
-
-  // Expose controller for debugging
-  window.ytGlobalController = pageController;
+  // Initialize controller
+  new YouTubePageController();
   
 })(); 
