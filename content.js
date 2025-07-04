@@ -80,12 +80,59 @@ class YouTubeController {
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
       } else {
-        await this.video.requestPictureInPicture();
+        // Configure PiP with smallest possible dimensions
+        const pipOptions = {
+          width: 160,
+          height: 90,
+          // Alternative: use aspect ratio of 16:9 with minimum size
+          // width: 240,
+          // height: 135
+        };
+        
+        await this.video.requestPictureInPicture(pipOptions);
+        
+        // Additional size optimization after PiP is active
+        if (document.pictureInPictureElement) {
+          // Try to resize the PiP window to minimum size
+          this.optimizePipSize();
+        }
       }
       return true;
     } catch (error) {
       console.error('Picture-in-Picture error:', error);
-      return false;
+      // Fallback to standard PiP without options
+      try {
+        await this.video.requestPictureInPicture();
+        if (document.pictureInPictureElement) {
+          this.optimizePipSize();
+        }
+        return true;
+      } catch (fallbackError) {
+        console.error('Fallback PiP error:', fallbackError);
+        return false;
+      }
+    }
+  }
+
+  optimizePipSize() {
+    // Set up resize event listener for PiP window
+    if (document.pictureInPictureElement) {
+      const pipElement = document.pictureInPictureElement;
+      
+      // Listen for PiP resize events
+      pipElement.addEventListener('resize', () => {
+        // Ensure minimum size is maintained
+        if (pipElement.videoWidth && pipElement.videoHeight) {
+          const minWidth = 160;
+          const minHeight = 90;
+          
+          if (pipElement.videoWidth < minWidth || pipElement.videoHeight < minHeight) {
+            // Browser will automatically maintain aspect ratio
+            // This is just for logging/debugging
+            console.log('PiP window resized to minimum dimensions');
+          }
+        }
+      });
     }
   }
 
