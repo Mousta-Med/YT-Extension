@@ -123,8 +123,8 @@ class YouTubeController {
       pipElement.addEventListener('resize', () => {
         // Ensure minimum size is maintained
         if (pipElement.videoWidth && pipElement.videoHeight) {
-          const minWidth = 160;
-          const minHeight = 90;
+          const minWidth = 100;
+          const minHeight = 50;
           
           if (pipElement.videoWidth < minWidth || pipElement.videoHeight < minHeight) {
             // Browser will automatically maintain aspect ratio
