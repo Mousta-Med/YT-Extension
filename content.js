@@ -29,7 +29,7 @@ class YouTubeController {
   setupMessageListener() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       this.handleCommand(message.action).then(result => {
-        sendResponse({ success: result });
+      sendResponse({ success: result });
       }).catch(error => {
         console.error('Error in handleCommand:', error);
         sendResponse({ success: false });
