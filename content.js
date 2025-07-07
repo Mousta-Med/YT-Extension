@@ -28,9 +28,13 @@ class YouTubeController {
 
   setupMessageListener() {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      const result = this.handleCommand(message.action);
-      sendResponse({ success: result });
-      return true;
+      this.handleCommand(message.action).then(result => {
+        sendResponse({ success: result });
+      }).catch(error => {
+        console.error('Error in handleCommand:', error);
+        sendResponse({ success: false });
+      });
+      return true; // Keep the message channel open for async response
     });
   }
 
@@ -42,24 +46,42 @@ class YouTubeController {
     });
   }
 
-  handleCommand(command) {
+  async handleCommand(command) {
     if (!this.video) {
       return false;
     }
 
     try {
+      let result = false;
       switch (command) {
         case 'toggle-play-pause':
-          return this.togglePlayPause();
+          result = this.togglePlayPause();
+          // Send video state for pin/unpin logic
+          if (result) {
+            chrome.runtime.sendMessage({
+              action: 'video-state-changed',
+              command: command,
+              isPlaying: !this.video.paused // Video state after toggle
+            }).catch(() => {
+              // Silent error handling
+            });
+          }
+          break;
         case 'toggle-pip':
-          return this.togglePictureInPicture();
+          result = await this.togglePictureInPicture();
+          // PIP doesn't affect pinning, so no message sent
+          break;
         case 'backward-10s':
-          return this.skipBackward10s();
+          result = this.skipBackward10s();
+          break;
         case 'forward-10s':
-          return this.skipForward10s();
+          result = this.skipForward10s();
+          break;
         default:
           return false;
       }
+
+      return result;
     } catch (error) {
       console.error('Error handling command:', command, error);
       return false;
