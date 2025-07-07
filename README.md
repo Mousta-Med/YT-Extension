@@ -24,10 +24,11 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
 - Automatically injects scripts into restored/unvisited YouTube tabs
 - No need to manually visit the YouTube tab first
 
-📌 **Auto-Pin Feature**
-- Automatically pins YouTube tab when you use play/pause shortcut
-- Tab stays pinned until you manually unpin it
-- Keeps YouTube easily accessible while working in other tabs
+📌 **Smart Tab Pinning**
+- **Playing video** → Automatically pins the YouTube tab
+- **Paused video** → Automatically unpins the YouTube tab
+- **PIP mode** → No pinning/unpinning behavior (works independently)
+- Keeps YouTube easily accessible when actively watching, declutters when paused
 
 ## Installation
 
@@ -61,6 +62,11 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
    - Use keyboard shortcuts to control YouTube
    - Works even if the YouTube tab was never visited (e.g., restored tabs)
 
+3. **Smart Tab Management**
+   - Use `Ctrl+Shift+Space` to play/pause - tab automatically pins when playing, unpins when paused
+   - Use `Ctrl+Shift+P` for Picture-in-Picture without affecting tab pin status
+   - Skip controls work normally without affecting pinning
+
 ### How It Works
 
 The extension automatically:
@@ -68,6 +74,7 @@ The extension automatically:
 - Injects control scripts when needed
 - Handles both active and unvisited/restored tabs
 - Provides feedback through notifications
+- Manages tab pinning based on video playback state
 
 ### Supported YouTube Pages
 
@@ -86,6 +93,11 @@ The extension automatically:
 - Ensure the video is loaded and playing
 - Some videos may not support PiP due to restrictions
 
+**Tab pinning not working?**
+- Only play/pause shortcut affects pinning
+- PIP shortcut intentionally doesn't change pin status
+- Manual pinning/unpinning will be overridden by extension when using play/pause
+
 ## Technical Details
 
 ### Architecture
@@ -99,7 +111,7 @@ The extension automatically:
 ### Key Features
 
 - **Smart Tab Detection** - Finds YouTube tabs automatically
-- **Auto-Pin Feature** - Automatically pins YouTube tab when using play/pause shortcut
+- **State-Based Tab Pinning** - Pins/unpins based on video play state
 - **Script Auto-Injection** - Injects scripts into unvisited tabs when needed
 - **Robust Error Handling** - Graceful fallbacks when commands fail
 - **Lightweight** - Minimal resource usage and clean code
@@ -115,9 +127,10 @@ The extension automatically:
 ### Files
 
 - `manifest.json` - Extension configuration
-- `background.js` - Service worker (150+ lines reduced from 300+)
+- `background.js` - Service worker with smart tab management
 - `content.js` - Content script for YouTube interaction
 - `injected.js` - Enhanced YouTube API integration
+- `LICENSE` - MIT license
 
 ## Customization
 
@@ -129,8 +142,8 @@ The extension automatically:
 
 ### Available Commands
 
-- Toggle Play/Pause
-- Toggle Picture-in-Picture
+- Toggle Play/Pause (affects tab pinning)
+- Toggle Picture-in-Picture (no pinning effect)
 - Skip backward 10 seconds
 - Skip forward 10 seconds
 
@@ -142,6 +155,7 @@ The extension automatically:
 2. Open YouTube video (don't need to visit tab)
 3. Test shortcuts from other tabs/applications
 4. Verify notifications work correctly
+5. Test tab pinning behavior with play/pause
 
 ### Debugging
 
