@@ -40,6 +40,9 @@ class YouTubeGlobalControls {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.action === 'youtube-tab-ready') {
         this.youtubeTabId = sender.tab.id;
+      } else if (message.action === 'video-state-changed') {
+        // Handle video state change for pin/unpin logic
+        this.handleVideoStateChange(message.isPlaying, sender.tab.id);
       }
       return true;
     });
@@ -139,6 +142,28 @@ class YouTubeGlobalControls {
       }
     } catch (error) {
       console.error('Error handling notification click:', error);
+    }
+  }
+
+  async handleVideoStateChange(isPlaying, tabId) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      
+      if (isPlaying) {
+        // Video is playing → pin the tab
+        if (!tab.pinned) {
+          await chrome.tabs.update(tabId, { pinned: true });
+          console.log('YouTube tab pinned - video is playing');
+        }
+      } else {
+        // Video is paused → unpin the tab
+        if (tab.pinned) {
+          await chrome.tabs.update(tabId, { pinned: false });
+          console.log('YouTube tab unpinned - video is paused');
+        }
+      }
+    } catch (error) {
+      console.error('Error handling video state change:', error);
     }
   }
 }
