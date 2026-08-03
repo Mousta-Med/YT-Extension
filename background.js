@@ -151,22 +151,12 @@ class YouTubeGlobalControls {
     }
   }
 
+  // The tab's pinned state simply mirrors whether the video is playing.
   async handleVideoStateChange(isPlaying, tabId) {
     try {
       const tab = await chrome.tabs.get(tabId);
-      
-      if (isPlaying) {
-        // Video is playing → pin the tab
-        if (!tab.pinned) {
-          await chrome.tabs.update(tabId, { pinned: true });
-          console.log('YouTube tab pinned - video is playing');
-        }
-      } else {
-        // Video is paused → unpin the tab
-        if (tab.pinned) {
-          await chrome.tabs.update(tabId, { pinned: false });
-          console.log('YouTube tab unpinned - video is paused');
-        }
+      if (tab.pinned !== isPlaying) {
+        await chrome.tabs.update(tabId, { pinned: isPlaying });
       }
     } catch (error) {
       console.error('Error handling video state change:', error);

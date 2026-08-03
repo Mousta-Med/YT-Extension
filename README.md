@@ -12,7 +12,7 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
 
 ⌨️ **Keyboard Shortcuts**
 - `Ctrl+Shift+Space` (or `Cmd+Shift+Space` on Mac) - Toggle Play/Pause
-- `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac) - Toggle Picture-in-Picture
+- `Ctrl+Shift+U` (or `Cmd+Shift+U` on Mac) - Toggle Picture-in-Picture
 - `Ctrl+Shift+Right` (or `Cmd+Shift+Right` on Mac) - Skip forward 10 seconds
 - `Ctrl+Shift+Left` (or `Cmd+Shift+Left` on Mac) - Skip backward 10 seconds
 
@@ -64,7 +64,7 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
 
 3. **Smart Tab Management**
    - Use `Ctrl+Shift+Space` to play/pause - tab automatically pins when playing, unpins when paused
-   - Use `Ctrl+Shift+P` for Picture-in-Picture without affecting tab pin status
+   - Use `Ctrl+Shift+U` for Picture-in-Picture without affecting tab pin status
    - Skip controls work normally without affecting pinning
 
 ### How It Works
@@ -118,7 +118,6 @@ The extension automatically:
 
 ### Permissions
 
-- `activeTab` - Interact with YouTube tabs
 - `tabs` - Find and communicate with YouTube tabs
 - `scripting` - Inject content scripts dynamically
 - `notifications` - Provide user feedback
@@ -129,6 +128,8 @@ The extension automatically:
 - `manifest.json` - Extension configuration
 - `background.js` - Service worker with smart tab management
 - `content.js` - Content script for YouTube interaction
+- `icon{16,48,128}.png` - Extension icons
+- `store-assets/` - Chrome Web Store listing images and the scripts that generate them
 - `LICENSE` - MIT license
 
 ## Customization

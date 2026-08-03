@@ -5,3 +5,6 @@
 
 # Build output for Web Store uploads
 *.zip
+
+# Local preview render from store-assets/build_icons.py, not a listing asset
+store-assets/final-preview.png
