@@ -48,8 +48,17 @@ class YouTubeGlobalControls {
     });
   }
 
+  // Matches exactly what the manifest grants access to. A substring check would
+  // also match hostnames like "youtube.com.example.net".
   isYouTubeUrl(url) {
-    return url && url.includes('youtube.com');
+    if (!url) return false;
+    try {
+      const { protocol, hostname } = new URL(url);
+      return protocol === 'https:' &&
+        (hostname === 'youtube.com' || hostname === 'www.youtube.com');
+    } catch {
+      return false;
+    }
   }
 
   async findActiveYouTubeTab() {
@@ -80,16 +89,13 @@ class YouTubeGlobalControls {
     if (!this.youtubeTabId) return;
 
     try {
-      // Inject content script
+      // Resolves only after the script has finished executing, so the message
+      // listener is guaranteed to be registered by the time we send.
       await chrome.scripting.executeScript({
         target: { tabId: this.youtubeTabId },
         files: ['content.js']
       });
 
-      // Wait a bit for script to initialize
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Send command
       await chrome.tabs.sendMessage(this.youtubeTabId, {
         action: command
       });

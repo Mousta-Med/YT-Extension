@@ -94,9 +94,10 @@ The extension automatically:
 - Some videos may not support PiP due to restrictions
 
 **Tab pinning not working?**
-- Only play/pause shortcut affects pinning
+- Pinning follows the video's actual play state, whether you use the shortcut or click the page directly
+- Only applies on `/watch` and `/shorts` pages, so homepage hover previews don't pin the tab
 - PIP shortcut intentionally doesn't change pin status
-- Manual pinning/unpinning will be overridden by extension when using play/pause
+- Manual pinning/unpinning will be overridden by the extension when playback state changes
 
 ## Technical Details
 
@@ -105,7 +106,6 @@ The extension automatically:
 - **Manifest V3** - Latest Chrome extension API
 - **Service Worker** (`background.js`) - Handles global shortcuts and tab management
 - **Content Script** (`content.js`) - Interacts with YouTube pages
-- **Injected Script** (`injected.js`) - Enhanced YouTube player integration
 - **Dynamic Script Injection** - Automatically handles unvisited tabs
 
 ### Key Features
@@ -129,7 +129,6 @@ The extension automatically:
 - `manifest.json` - Extension configuration
 - `background.js` - Service worker with smart tab management
 - `content.js` - Content script for YouTube interaction
-- `injected.js` - Enhanced YouTube API integration
 - `LICENSE` - MIT license
 
 ## Customization

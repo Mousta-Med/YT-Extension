@@ -2,14 +2,13 @@
   "manifest_version": 3,
   "name": "YouTube Global Controls",
   "version": "1.0.0",
-  "description": "Global keyboard shortcuts to control YouTube playback and Picture-in-Picture mode",
+  "description": "Global shortcuts for YouTube play/pause, 10s seek and Picture-in-Picture. Pins the tab while a video is playing.",
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
     "128": "icon128.png"
   },
   "permissions": [
-    "activeTab",
     "tabs",
     "scripting",
     "notifications"
@@ -37,13 +36,15 @@
         "default": "Ctrl+Shift+Space",
         "mac": "Command+Shift+Space"
       },
+      "global": true,
       "description": "Toggle YouTube video play/pause globally"
     },
     "toggle-pip": {
       "suggested_key": {
-        "default": "Ctrl+Shift+P",
-        "mac": "Command+Shift+P"
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
       },
+      "global": true,
       "description": "Toggle Picture-in-Picture mode"
     },
     "backward-10s": {
@@ -51,6 +52,7 @@
         "default": "Ctrl+Shift+Left",
         "mac": "Command+Shift+Left"
       },
+      "global": true,
       "description": "Skip backward 10 seconds"
     },
     "forward-10s": {
@@ -58,16 +60,8 @@
         "default": "Ctrl+Shift+Right",
         "mac": "Command+Shift+Right"
       },
+      "global": true,
       "description": "Skip forward 10 seconds"
     }
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["injected.js"],
-      "matches": [
-        "https://www.youtube.com/*",
-        "https://youtube.com/*"
-      ]
-    }
-  ]
+  }
 } 

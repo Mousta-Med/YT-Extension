@@ -1,204 +1,145 @@
 // Content script for YouTube pages
-class YouTubeController {
-  constructor() {
-    this.video = null;
-    this.setupVideoDetection();
-    this.setupMessageListener();
-    this.injectVideoScript();
-  }
+(() => {
+  'use strict';
 
-  setupVideoDetection() {
-    const checkForVideo = () => {
-      this.video = document.querySelector('video');
-      if (this.video) {
-        this.notifyBackgroundReady();
-      }
-    };
+  // This file is declared in the manifest AND injected programmatically as a
+  // fallback for tabs that predate the extension. Without this guard the second
+  // injection builds a duplicate controller and every command runs twice.
+  if (window.__ytGlobalControlsLoaded) return;
+  window.__ytGlobalControlsLoaded = true;
 
-    // Check immediately
-    checkForVideo();
+  class YouTubeController {
+    constructor() {
+      this.video = null;
+      this.onPlaybackChange = () => this.reportPlaybackState();
+      this.setupVideoDetection();
+      this.setupMessageListener();
+    }
 
-    // Set up observer for dynamic content
-    const observer = new MutationObserver(checkForVideo);
-    observer.observe(document.body, { childList: true, subtree: true });
+    setupVideoDetection() {
+      // YouTube mutates the DOM constantly, so coalesce bursts into one check
+      // per frame instead of re-querying on every single mutation.
+      let scheduled = false;
+      const schedule = () => {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+          scheduled = false;
+          this.attachToVideo();
+        });
+      };
 
-    // Also check periodically as fallback
-    setInterval(checkForVideo, 2000);
-  }
-
-  setupMessageListener() {
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      this.handleCommand(message.action).then(result => {
-      sendResponse({ success: result });
-      }).catch(error => {
-        console.error('Error in handleCommand:', error);
-        sendResponse({ success: false });
+      new MutationObserver(schedule).observe(document.documentElement, {
+        childList: true,
+        subtree: true
       });
-      return true; // Keep the message channel open for async response
-    });
-  }
 
-  notifyBackgroundReady() {
-    chrome.runtime.sendMessage({
-      action: 'youtube-tab-ready'
-    }).catch(() => {
-      // Silent error handling
-    });
-  }
-
-  async handleCommand(command) {
-    if (!this.video) {
-      return false;
+      this.attachToVideo();
     }
 
-    try {
-      let result = false;
-      switch (command) {
-        case 'toggle-play-pause':
-          result = this.togglePlayPause();
-          // Send video state for pin/unpin logic
-          if (result) {
-            chrome.runtime.sendMessage({
-              action: 'video-state-changed',
-              command: command,
-              isPlaying: !this.video.paused // Video state after toggle
-            }).catch(() => {
-              // Silent error handling
-            });
-          }
-          break;
-        case 'toggle-pip':
-          result = await this.togglePictureInPicture();
-          // PIP doesn't affect pinning, so no message sent
-          break;
-        case 'backward-10s':
-          result = this.skipBackward10s();
-          break;
-        case 'forward-10s':
-          result = this.skipForward10s();
-          break;
-        default:
-          return false;
+    // YouTube swaps the <video> element out on navigation, so rebind whenever
+    // it changes. Bailing early when it hasn't keeps this cheap.
+    attachToVideo() {
+      const video = document.querySelector('video');
+      if (video === this.video) return;
+
+      if (this.video) {
+        this.video.removeEventListener('play', this.onPlaybackChange);
+        this.video.removeEventListener('pause', this.onPlaybackChange);
       }
 
-      return result;
-    } catch (error) {
-      console.error('Error handling command:', command, error);
-      return false;
-    }
-  }
+      this.video = video;
+      if (!video) return;
 
-  togglePlayPause() {
-    if (this.video.paused) {
-      this.video.play();
-    } else {
-      this.video.pause();
-    }
-    return true;
-  }
+      // Listening to the element itself means clicking pause on the page is
+      // reported too, not just the keyboard shortcut.
+      video.addEventListener('play', this.onPlaybackChange);
+      video.addEventListener('pause', this.onPlaybackChange);
 
-  async togglePictureInPicture() {
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else {
-        // Configure PiP with smallest possible dimensions
-        const pipOptions = {
-          width: 160,
-          height: 90,
-          // Alternative: use aspect ratio of 16:9 with minimum size
-          // width: 240,
-          // height: 135
-        };
-        
-        await this.video.requestPictureInPicture(pipOptions);
-        
-        // Additional size optimization after PiP is active
-        if (document.pictureInPictureElement) {
-          // Try to resize the PiP window to minimum size
-          this.optimizePipSize();
-        }
-      }
-      return true;
-    } catch (error) {
-      console.error('Picture-in-Picture error:', error);
-      // Fallback to standard PiP without options
+      this.send({ action: 'youtube-tab-ready' });
+      this.reportPlaybackState();
+    }
+
+    // Hover previews on the homepage and in search results are real <video>
+    // elements; without this the tab would pin itself while merely browsing.
+    isVideoPage() {
+      return location.pathname.startsWith('/watch') ||
+             location.pathname.startsWith('/shorts');
+    }
+
+    reportPlaybackState() {
+      if (!this.video || !this.isVideoPage()) return;
+      this.send({ action: 'video-state-changed', isPlaying: !this.video.paused });
+    }
+
+    send(message) {
+      chrome.runtime.sendMessage(message).catch(() => {
+        // Service worker asleep or extension reloaded — nothing to recover.
+      });
+    }
+
+    setupMessageListener() {
+      chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        this.handleCommand(message.action)
+          .then(success => sendResponse({ success }))
+          .catch(error => {
+            console.error('Error in handleCommand:', error);
+            sendResponse({ success: false });
+          });
+        return true; // Keep the message channel open for the async response
+      });
+    }
+
+    async handleCommand(command) {
+      if (!this.video) return false;
+
       try {
-        await this.video.requestPictureInPicture();
-        if (document.pictureInPictureElement) {
-          this.optimizePipSize();
+        switch (command) {
+          case 'toggle-play-pause':
+            return this.togglePlayPause();
+          case 'toggle-pip':
+            return await this.togglePictureInPicture();
+          case 'backward-10s':
+            return this.seekBy(-10);
+          case 'forward-10s':
+            return this.seekBy(10);
+          default:
+            return false;
         }
-        return true;
-      } catch (fallbackError) {
-        console.error('Fallback PiP error:', fallbackError);
+      } catch (error) {
+        console.error('Error handling command:', command, error);
         return false;
       }
     }
-  }
 
-  optimizePipSize() {
-    // Set up resize event listener for PiP window
-    if (document.pictureInPictureElement) {
-      const pipElement = document.pictureInPictureElement;
-      
-      // Listen for PiP resize events
-      pipElement.addEventListener('resize', () => {
-        // Ensure minimum size is maintained
-        if (pipElement.videoWidth && pipElement.videoHeight) {
-          const minWidth = 100;
-          const minHeight = 50;
-          
-          if (pipElement.videoWidth < minWidth || pipElement.videoHeight < minHeight) {
-            // Browser will automatically maintain aspect ratio
-            // This is just for logging/debugging
-            console.log('PiP window resized to minimum dimensions');
-          }
-        }
-      });
-    }
-  }
-
-  skipBackward10s() {
-    try {
-      this.video.currentTime = Math.max(0, this.video.currentTime - 10);
+    togglePlayPause() {
+      if (this.video.paused) {
+        this.video.play();
+      } else {
+        this.video.pause();
+      }
       return true;
-    } catch (error) {
-      // Fallback: keyboard shortcut
-      this.simulateKeyPress('ArrowLeft');
+    }
+
+    async togglePictureInPicture() {
+      if (!document.pictureInPictureEnabled || this.video.disablePictureInPicture) {
+        return false;
+      }
+
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else {
+        await this.video.requestPictureInPicture();
+      }
+      return true;
+    }
+
+    seekBy(seconds) {
+      const duration = Number.isFinite(this.video.duration) ? this.video.duration : Infinity;
+      this.video.currentTime = Math.min(duration, Math.max(0, this.video.currentTime + seconds));
       return true;
     }
   }
 
-  skipForward10s() {
-    try {
-      this.video.currentTime = Math.min(this.video.duration || Infinity, this.video.currentTime + 10);
-      return true;
-    } catch (error) {
-      // Fallback: keyboard shortcut
-      this.simulateKeyPress('ArrowRight');
-      return true;
-    }
-  }
-
-  simulateKeyPress(key) {
-    document.dispatchEvent(new KeyboardEvent('keydown', {
-      key: key,
-      bubbles: true,
-      cancelable: true
-    }));
-  }
-
-  injectVideoScript() {
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('injected.js');
-    script.onload = () => script.remove();
-    (document.head || document.documentElement).appendChild(script);
-  }
-}
-
-// Initialize controller
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => new YouTubeController());
-} else {
   new YouTubeController();
-} 
+})();

@@ -1,0 +1,7 @@
+# Signing keys — never commit these. The Chrome Web Store signs releases for
+# us, so these should only ever appear from local `Pack extension` experiments.
+*.pem
+*.crx
+
+# Build output for Web Store uploads
+*.zip
