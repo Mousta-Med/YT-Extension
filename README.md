@@ -11,10 +11,16 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
 - Works even when Chrome is minimized or you're on other tabs
 
 ⌨️ **Keyboard Shortcuts**
-- `Ctrl+Shift+Space` (or `Cmd+Shift+Space` on Mac) - Toggle Play/Pause
-- `Ctrl+Shift+U` (or `Cmd+Shift+U` on Mac) - Toggle Picture-in-Picture
-- `Ctrl+Shift+Right` (or `Cmd+Shift+Right` on Mac) - Skip forward 10 seconds
-- `Ctrl+Shift+Left` (or `Cmd+Shift+Left` on Mac) - Skip backward 10 seconds
+- `Ctrl+Shift+1` (or `Cmd+Shift+1` on Mac) - Toggle Play/Pause
+- `Ctrl+Shift+2` (or `Cmd+Shift+2` on Mac) - Toggle Picture-in-Picture
+- `Ctrl+Shift+9` (or `Cmd+Shift+9` on Mac) - Skip backward 10 seconds
+- `Ctrl+Shift+0` (or `Cmd+Shift+0` on Mac) - Skip forward 10 seconds
+
+> **Why digits?** Chrome only accepts `Ctrl+Shift+[0-9]` as a *suggested* shortcut
+> for global commands — any other combination is silently dropped and the command
+> installs unbound. That restriction applies only to the defaults shipped in the
+> manifest: you can rebind these to any combination you like at
+> `chrome://extensions/shortcuts` and still keep them set to **Global**.
 
 🔔 **Smart Notifications**
 - Helpful notifications when YouTube isn't ready
@@ -63,8 +69,8 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
    - Works even if the YouTube tab was never visited (e.g., restored tabs)
 
 3. **Smart Tab Management**
-   - Use `Ctrl+Shift+Space` to play/pause - tab automatically pins when playing, unpins when paused
-   - Use `Ctrl+Shift+U` for Picture-in-Picture without affecting tab pin status
+   - Use `Ctrl+Shift+1` to play/pause - tab automatically pins when playing, unpins when paused
+   - Use `Ctrl+Shift+2` for Picture-in-Picture without affecting tab pin status
    - Skip controls work normally without affecting pinning
 
 ### How It Works

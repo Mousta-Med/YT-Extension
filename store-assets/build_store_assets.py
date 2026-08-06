@@ -66,10 +66,10 @@ def screenshot():
            font=font("segoeui.ttf", 26), fill=MUTED)
 
     rows = [
-        (["Ctrl", "Shift", "Space"], "Play / pause"),
-        (["Ctrl", "Shift", "U"], "Picture-in-Picture"),
-        (["Ctrl", "Shift", "\u2190"], "Back 10 seconds"),
-        (["Ctrl", "Shift", "\u2192"], "Forward 10 seconds"),
+        (["Ctrl", "Shift", "1"], "Play / pause"),
+        (["Ctrl", "Shift", "2"], "Picture-in-Picture"),
+        (["Ctrl", "Shift", "9"], "Back 10 seconds"),
+        (["Ctrl", "Shift", "0"], "Forward 10 seconds"),
     ]
 
     panel_y = 258
@@ -89,7 +89,8 @@ def screenshot():
         d.text((label_x, y + 8), label, font=lf, fill=TEXT)
         y += 82
 
-    d.text((96, 704), "Pins the tab while a video is playing  \u00b7  No data collected",
+    d.text((96, 704),
+           "Rebind any shortcut  \u00b7  Pins the tab while playing  \u00b7  No data collected",
            font=font("segoeui.ttf", 23), fill=MUTED)
     return img
 

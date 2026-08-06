@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Global Controls",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Global shortcuts for YouTube play/pause, 10s seek and Picture-in-Picture. Pins the tab while a video is playing.",
   "icons": {
     "16": "icon16.png",
@@ -33,32 +33,32 @@
   "commands": {
     "toggle-play-pause": {
       "suggested_key": {
-        "default": "Ctrl+Shift+Space",
-        "mac": "Command+Shift+Space"
+        "default": "Ctrl+Shift+1",
+        "mac": "Command+Shift+1"
       },
       "global": true,
       "description": "Toggle YouTube video play/pause globally"
     },
     "toggle-pip": {
       "suggested_key": {
-        "default": "Ctrl+Shift+U",
-        "mac": "Command+Shift+U"
+        "default": "Ctrl+Shift+2",
+        "mac": "Command+Shift+2"
       },
       "global": true,
       "description": "Toggle Picture-in-Picture mode"
     },
     "backward-10s": {
       "suggested_key": {
-        "default": "Ctrl+Shift+Left",
-        "mac": "Command+Shift+Left"
+        "default": "Ctrl+Shift+9",
+        "mac": "Command+Shift+9"
       },
       "global": true,
       "description": "Skip backward 10 seconds"
     },
     "forward-10s": {
       "suggested_key": {
-        "default": "Ctrl+Shift+Right",
-        "mac": "Command+Shift+Right"
+        "default": "Ctrl+Shift+0",
+        "mac": "Command+Shift+0"
       },
       "global": true,
       "description": "Skip forward 10 seconds"
