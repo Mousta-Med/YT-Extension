@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>YouTube Global Controls</title>
+  <style>
+    :root {
+      --bg: #171921;
+      --panel: #212430;
+      --text: #eef0f6;
+      --muted: #969caf;
+      --key-fill: #3d4254;
+      --key-edge: #5c637a;
+      --accent: #f33c3c;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      width: 310px;
+      margin: 0;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.45 system-ui, "Segoe UI", Roboto, sans-serif;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    header img { width: 28px; height: 28px; }
+    header h1 { margin: 0; font-size: 14px; font-weight: 600; }
+
+    ul { list-style: none; margin: 0 0 14px; padding: 0; }
+
+    li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 11px;
+      background: var(--panel);
+      border-radius: 8px;
+    }
+
+    li + li { margin-top: 6px; }
+
+    .keys { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+    kbd {
+      display: inline-block;
+      min-width: 22px;
+      padding: 3px 6px;
+      background: var(--key-fill);
+      border: 1px solid var(--key-edge);
+      border-radius: 5px;
+      font: 600 11px/1 system-ui, sans-serif;
+      text-align: center;
+    }
+
+    .sep { color: var(--muted); font-size: 10px; }
+
+    .unset {
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    button {
+      width: 100%;
+      padding: 9px;
+      background: var(--key-fill);
+      color: var(--text);
+      border: 1px solid var(--key-edge);
+      border-radius: 8px;
+      font: 600 12px system-ui, sans-serif;
+      cursor: pointer;
+    }
+
+    button:hover { background: #474d63; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    .note {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      text-align: center;
+    }
+
+    .note.warn { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="icon48.png" alt="">
+    <h1>YouTube Global Controls</h1>
+  </header>
+
+  <ul id="commands"></ul>
+
+  <button id="open" type="button">Change shortcuts</button>
+  <p class="note" id="note"></p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -22,6 +22,15 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
 > manifest: you can rebind these to any combination you like at
 > `chrome://extensions/shortcuts` and still keep them set to **Global**.
 
+🎛️ **Shortcut Overview Popup**
+- Click the toolbar icon to see every shortcut and its current binding
+- Unassigned shortcuts are called out, so you notice before wondering why nothing happens
+- One click opens Chrome's shortcut editor
+
+> Chrome does not let an extension set its own shortcuts (`chrome.commands.update`
+> is Firefox-only), so the actual rebinding happens on `chrome://extensions/shortcuts`.
+> The popup shows the live state and takes you there in one click.
+
 🔔 **Smart Notifications**
 - Helpful notifications when YouTube isn't ready
 - Click notifications to automatically navigate to YouTube
@@ -134,6 +143,7 @@ The extension automatically:
 - `manifest.json` - Extension configuration
 - `background.js` - Service worker with smart tab management
 - `content.js` - Content script for YouTube interaction
+- `popup.html` / `popup.js` - Toolbar popup listing current shortcut bindings
 - `icon{16,48,128}.png` - Extension icons
 - `store-assets/` - Chrome Web Store listing images and the scripts that generate them
 - `LICENSE` - MIT license
