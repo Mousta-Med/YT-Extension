@@ -47,22 +47,49 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
 
 ## Installation
 
-### Developer Mode Installation
+### From the Chrome Web Store (recommended)
 
-1. **Download the Extension**
-   - Clone or download this repository
+**[Install YouTube Global Controls](https://chromewebstore.google.com/detail/kdagmajfmfaaamooaohkdhimdojbejdo)**
 
-2. **Open Chrome Extensions Page**
-   - Go to `chrome://extensions/`
-   - Enable "Developer mode" (top right toggle)
+Updates arrive automatically, and because the extension keeps a stable ID, your
+shortcut assignments sync to every machine signed into the same Chrome profile.
 
-3. **Load the Extension**
-   - Click "Load unpacked"
-   - Select the folder containing the extension files
+### From a GitHub release
 
-4. **Verify Installation**
-   - Look for "YouTube Global Controls" in your extensions
-   - Ensure it's enabled
+Grab the latest `.zip` from the [Releases page](../../releases).
+
+> Chrome cannot install a `.zip` directly — it has to be unpacked first.
+
+1. Download `yt-global-controls-X.Y.Z.zip`
+2. Unzip it into a folder you intend to keep — **deleting the folder uninstalls
+   the extension**, since Chrome loads it from that path
+3. Open `chrome://extensions/`
+4. Enable **Developer mode** (top-right toggle)
+5. Click **Load unpacked** and select the unzipped folder
+6. Confirm "YouTube Global Controls" appears and is enabled
+
+Chrome shows a "Disable developer mode extensions" warning on startup for
+unpacked extensions. That is expected; the Web Store build avoids it.
+
+### From source
+
+Clone the repository and load the folder itself with **Load unpacked**, as in
+steps 3-6 above.
+
+## Releasing
+
+Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml).
+Bump `version` in `manifest.json`, then push a matching tag:
+
+```bash
+git tag v1.0.3
+git push origin v1.0.3
+```
+
+The workflow verifies the tag matches the manifest version, packages only the
+files Chrome needs, and publishes a release with the `.zip` and install
+instructions attached. A mismatched tag fails the build rather than shipping a
+mislabelled package.
 
 ## Usage
 

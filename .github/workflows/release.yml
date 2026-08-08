@@ -1,0 +1,110 @@
+name: Release
+
+# Publishes a GitHub release whenever a version tag is pushed:
+#   git tag v1.0.3 && git push origin v1.0.3
+#
+# Uses the gh CLI preinstalled on GitHub runners rather than a third-party
+# action, so nothing outside GitHub is trusted with the release token.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from manifest
+        id: manifest
+        run: echo "version=$(jq -r .version manifest.json)" >> "$GITHUB_OUTPUT"
+
+      # A tag that disagrees with manifest.json would ship a package whose
+      # version does not match its release. Fail loudly instead.
+      - name: Verify tag matches manifest version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="${{ steps.manifest.outputs.version }}"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::Tag v$tag does not match manifest.json version $manifest"
+            exit 1
+          fi
+          echo "tag v$tag matches manifest version $manifest"
+
+      # -j junks directory paths so manifest.json lands at the zip root, which
+      # is what Chrome and the Web Store require. Store assets, the README and
+      # the workflow itself are deliberately excluded.
+      - name: Build extension package
+        id: build
+        run: |
+          version="${{ steps.manifest.outputs.version }}"
+          name="yt-global-controls-${version}.zip"
+          mkdir -p dist
+          zip -j "dist/${name}" \
+            manifest.json \
+            background.js \
+            content.js \
+            popup.html \
+            popup.js \
+            icon16.png \
+            icon48.png \
+            icon128.png \
+            LICENSE
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "--- package contents ---"
+          unzip -l "dist/${name}"
+
+      - name: Write release notes
+        run: |
+          version="${{ steps.manifest.outputs.version }}"
+          cat > release-notes.md <<NOTES
+          ## Install
+
+          ### From the Chrome Web Store (recommended)
+
+          <https://chromewebstore.google.com/detail/kdagmajfmfaaamooaohkdhimdojbejdo>
+
+          Installs and updates itself, and your shortcuts sync across machines
+          signed into the same Chrome profile.
+
+          ### From this release
+
+          Chrome cannot install a \`.zip\` directly — it has to be unpacked.
+
+          1. Download \`${{ steps.build.outputs.name }}\` below
+          2. Unzip it into a folder you intend to keep; deleting the folder
+             uninstalls the extension
+          3. Open \`chrome://extensions\`
+          4. Turn on **Developer mode** (top right)
+          5. Click **Load unpacked** and select the unzipped folder
+
+          ### Shortcuts
+
+          | Shortcut | Action |
+          | --- | --- |
+          | \`Ctrl+Shift+1\` | Play / pause |
+          | \`Ctrl+Shift+2\` | Picture-in-Picture |
+          | \`Ctrl+Shift+9\` | Back 10 seconds |
+          | \`Ctrl+Shift+0\` | Forward 10 seconds |
+
+          Rebind any of them at \`chrome://extensions/shortcuts\`, and set the
+          scope to **Global** to use them while Chrome is in the background.
+          NOTES
+          echo "--- notes ---"
+          cat release-notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/${{ steps.build.outputs.name }}" \
+            --title "v${{ steps.manifest.outputs.version }}" \
+            --notes-file release-notes.md
