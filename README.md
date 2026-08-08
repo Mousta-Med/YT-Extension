@@ -109,10 +109,10 @@ The extension automatically:
 - Some videos may not support PiP due to restrictions
 
 **Tab pinning not working?**
-- Pinning follows the video's actual play state, whether you use the shortcut or click the page directly
+- Pinning is driven **only** by the play/pause shortcut. Playing or pausing by clicking the page, autoplay, and ad breaks all leave the pin untouched
 - Only applies on `/watch` and `/shorts` pages, so homepage hover previews don't pin the tab
 - PIP shortcut intentionally doesn't change pin status
-- Manual pinning/unpinning will be overridden by the extension when playback state changes
+- Manual pinning/unpinning will be overridden the next time you use the play/pause shortcut
 
 ## Technical Details
 

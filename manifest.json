@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube Global Controls",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Global shortcuts for YouTube play/pause, 10s seek and Picture-in-Picture. Pins the tab while a video is playing.",
   "icons": {
     "16": "icon16.png",

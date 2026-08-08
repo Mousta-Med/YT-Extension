@@ -11,7 +11,6 @@
   class YouTubeController {
     constructor() {
       this.video = null;
-      this.onPlaybackChange = () => this.reportPlaybackState();
       this.setupVideoDetection();
       this.setupMessageListener();
     }
@@ -43,33 +42,17 @@
       const video = document.querySelector('video');
       if (video === this.video) return;
 
-      if (this.video) {
-        this.video.removeEventListener('play', this.onPlaybackChange);
-        this.video.removeEventListener('pause', this.onPlaybackChange);
-      }
-
       this.video = video;
       if (!video) return;
 
-      // Listening to the element itself means clicking pause on the page is
-      // reported too, not just the keyboard shortcut.
-      video.addEventListener('play', this.onPlaybackChange);
-      video.addEventListener('pause', this.onPlaybackChange);
-
       this.send({ action: 'youtube-tab-ready' });
-      this.reportPlaybackState();
     }
 
     // Hover previews on the homepage and in search results are real <video>
-    // elements; without this the tab would pin itself while merely browsing.
+    // elements; without this the tab could pin itself while merely browsing.
     isVideoPage() {
       return location.pathname.startsWith('/watch') ||
              location.pathname.startsWith('/shorts');
-    }
-
-    reportPlaybackState() {
-      if (!this.video || !this.isVideoPage()) return;
-      this.send({ action: 'video-state-changed', isPlaying: !this.video.paused });
     }
 
     send(message) {
@@ -112,11 +95,20 @@
       }
     }
 
+    // Pinning is reported only from here, never from the video's own play/pause
+    // events: the tab should follow playback the user drove with the shortcut,
+    // not autoplay, ads, or a click on the page itself.
     togglePlayPause() {
-      if (this.video.paused) {
+      const willPlay = this.video.paused;
+
+      if (willPlay) {
         this.video.play();
       } else {
         this.video.pause();
+      }
+
+      if (this.isVideoPage()) {
+        this.send({ action: 'video-state-changed', isPlaying: willPlay });
       }
       return true;
     }
