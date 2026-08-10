@@ -6,10 +6,10 @@ class YouTubeGlobalControls {
   }
 
   setupEventListeners() {
-    // Listen for command shortcuts
-    chrome.commands.onCommand.addListener((command) => {
-      this.handleCommand(command);
-    });
+    // Returning the promise keeps the service worker alive until the command
+    // finishes. Dropping it lets Chrome tear the worker down mid-await on a
+    // cold start, which silently swallows the first press after an idle period.
+    chrome.commands.onCommand.addListener((command) => this.handleCommand(command));
 
     // Listen for notification clicks
     chrome.notifications.onClicked.addListener((notificationId) => {
@@ -36,15 +36,17 @@ class YouTubeGlobalControls {
       }
     });
 
-    // Listen for messages from content scripts
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // These are fire-and-forget notifications. Returning true would promise a
+    // sendResponse that never comes, holding the channel open until it times
+    // out and rejects on the sender's side.
+    chrome.runtime.onMessage.addListener((message, sender) => {
+      if (!sender.tab) return;
+
       if (message.action === 'youtube-tab-ready') {
         this.youtubeTabId = sender.tab.id;
       } else if (message.action === 'video-state-changed') {
-        // Handle video state change for pin/unpin logic
         this.handleVideoStateChange(message.isPlaying, sender.tab.id);
       }
-      return true;
     });
   }
 
@@ -85,22 +87,27 @@ class YouTubeGlobalControls {
     }
   }
 
-  async injectContentScriptAndExecute(command) {
-    if (!this.youtubeTabId) return;
+  // Delivers to the currently cached tab. Returns false rather than throwing so
+  // the caller can decide whether a different tab is worth trying.
+  async deliver(command) {
+    if (!this.youtubeTabId) return false;
 
     try {
-      // Resolves only after the script has finished executing, so the message
-      // listener is guaranteed to be registered by the time we send.
-      await chrome.scripting.executeScript({
-        target: { tabId: this.youtubeTabId },
-        files: ['content.js']
-      });
-
-      await chrome.tabs.sendMessage(this.youtubeTabId, {
-        action: command
-      });
-    } catch (error) {
-      throw new Error(`Failed to inject and execute: ${error.message}`);
+      await chrome.tabs.sendMessage(this.youtubeTabId, { action: command });
+      return true;
+    } catch {
+      // No live content script there: a restored tab, or the extension was
+      // reloaded. Inject and retry once before giving up on this tab.
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: this.youtubeTabId },
+          files: ['content.js']
+        });
+        await chrome.tabs.sendMessage(this.youtubeTabId, { action: command });
+        return true;
+      } catch {
+        return false;
+      }
     }
   }
 
@@ -115,25 +122,20 @@ class YouTubeGlobalControls {
   }
 
   async handleCommand(command) {
-    if (!this.youtubeTabId) {
-      await this.findActiveYouTubeTab();
-    }
+    // The cached id can be stale: onRemoved only covers closed tabs, so a tab
+    // navigated away from YouTube stays cached and swallows every command. Try
+    // it first, then re-resolve and retry rather than giving up on one failure.
+    if (await this.deliver(command)) return;
+
+    await this.findActiveYouTubeTab();
 
     if (!this.youtubeTabId) {
       this.showNotification('Please open a YouTube tab first');
       return;
     }
 
-    try {
-      // Try to send message to existing content script
-      await chrome.tabs.sendMessage(this.youtubeTabId, { action: command });
-    } catch (error) {
-      // Content script not loaded - inject it and try again
-      try {
-        await this.injectContentScriptAndExecute(command);
-      } catch (injectError) {
-        this.showNotification('Failed to control YouTube. Please visit the YouTube tab first.');
-      }
+    if (!await this.deliver(command)) {
+      this.showNotification('Failed to control YouTube. Please visit the YouTube tab first.');
     }
   }
 

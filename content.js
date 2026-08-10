@@ -3,10 +3,26 @@
   'use strict';
 
   // This file is declared in the manifest AND injected programmatically as a
-  // fallback for tabs that predate the extension. Without this guard the second
+  // fallback for tabs that predate the extension. Without a guard the second
   // injection builds a duplicate controller and every command runs twice.
-  if (window.__ytGlobalControlsLoaded) return;
-  window.__ytGlobalControlsLoaded = true;
+  //
+  // A plain boolean is not enough: reloading or updating the extension kills
+  // the previous instance's message listener but leaves the flag on the page,
+  // so re-injection would bail out and the tab would stay permanently deaf
+  // until reloaded. Probing the old instance's chrome binding distinguishes a
+  // live controller from an orphaned one.
+  const previous = window.__ytGlobalControls;
+  if (previous && previous.alive()) return;
+
+  window.__ytGlobalControls = {
+    alive() {
+      try {
+        return Boolean(chrome.runtime && chrome.runtime.id);
+      } catch {
+        return false; // context invalidated by an extension reload
+      }
+    }
+  };
 
   class YouTubeController {
     constructor() {
@@ -79,7 +95,7 @@
       try {
         switch (command) {
           case 'toggle-play-pause':
-            return this.togglePlayPause();
+            return await this.togglePlayPause();
           case 'toggle-pip':
             return await this.togglePictureInPicture();
           case 'backward-10s':
@@ -98,11 +114,19 @@
     // Pinning is reported only from here, never from the video's own play/pause
     // events: the tab should follow playback the user drove with the shortcut,
     // not autoplay, ads, or a click on the page itself.
-    togglePlayPause() {
+    async togglePlayPause() {
       const willPlay = this.video.paused;
 
       if (willPlay) {
-        this.video.play();
+        try {
+          // play() returns a promise that Chrome's autoplay policy can reject
+          // in a tab the user has never interacted with. Awaiting it means a
+          // refusal is reported instead of pinning a tab that never started.
+          await this.video.play();
+        } catch (error) {
+          console.error('play() was refused:', error);
+          return false;
+        }
       } else {
         this.video.pause();
       }
