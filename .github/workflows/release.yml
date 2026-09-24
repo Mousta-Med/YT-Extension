@@ -96,6 +96,13 @@ jobs:
 
           Rebind any of them at \`chrome://extensions/shortcuts\`, and set the
           scope to **Global** to use them while Chrome is in the background.
+
+          ### More controls
+
+          Next video, previous video, mute, volume up/down and speed up/down
+          ship without a key, because Chrome allows an extension only four
+          default shortcuts. Assign the ones you want at
+          \`chrome://extensions/shortcuts\` and set each to **Global**.
           NOTES
           echo "--- notes ---"
           cat release-notes.md

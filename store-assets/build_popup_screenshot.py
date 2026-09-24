@@ -24,17 +24,32 @@ ACCENT = (243, 60, 60)     # --accent  #f33c3c
 
 POPUP_W = 310              # body width
 PAD = 16                   # body padding
-ROW_PAD_X, ROW_PAD_Y = 11, 9
-ROW_GAP = 6
+ROW_PAD_X, ROW_PAD_Y = 11, 6
+ROW_GAP = 4
+LIST_GAP = 14              # ul margin-bottom
+HEADING_H = 16             # h2: 11px at the body's 1.45 line height
+HEADING_GAP = 6            # h2 margin-bottom
 KBD_MIN_W, KBD_PAD_X = 22, 6
 
-ROWS = [
+# What a fresh install shows: the four commands Chrome lets us give default
+# keys, then the extras, which start unassigned (None renders "Not set").
+CORE_ROWS = [
     ("Play / pause", ["Ctrl", "Shift", "1"]),
     ("Picture-in-Picture", ["Ctrl", "Shift", "2"]),
     ("Back 10 seconds", ["Ctrl", "Shift", "9"]),
     ("Forward 10 seconds", ["Ctrl", "Shift", "0"]),
 ]
-NOTE = 'Set each to "Global" to use them outside Chrome.'
+EXTRA_ROWS = [
+    ("Next video", None),
+    ("Previous video", None),
+    ("Mute / unmute", None),
+    ("Volume up", None),
+    ("Volume down", None),
+    ("Speed up", None),
+    ("Slow down", None),
+]
+HEADING = "More controls"
+NOTE = 'Give extras a key and set them to "Global".'
 
 
 def fnt(name, px, S):
@@ -62,12 +77,19 @@ def popup(S):
     sep_f = fnt("segoeui.ttf", 10, S)
     btn_f = fnt("seguisb.ttf", 12, S)
     note_f = fnt("segoeui.ttf", 11, S)
+    heading_f = fnt("seguisb.ttf", 11, S)
+    unset_f = fnt("segoeui.ttf", 11, S)
 
     kbd_h = 19 * S
     row_h = kbd_h + ROW_PAD_Y * 2 * S
     btn_h = 34 * S
+
+    def list_h(rows):
+        return len(rows) * row_h + (len(rows) - 1) * ROW_GAP * S + LIST_GAP * S
+
     H = int(PAD * S + 28 * S + 14 * S
-            + len(ROWS) * row_h + (len(ROWS) - 1) * ROW_GAP * S + 14 * S
+            + list_h(CORE_ROWS)
+            + (HEADING_H + HEADING_GAP) * S + list_h(EXTRA_ROWS)
             + btn_h + 10 * S + 16 * S + PAD * S)
     W = int(POPUP_W * S)
 
@@ -82,33 +104,47 @@ def popup(S):
           "YouTube Global Controls", title_f, TEXT)
     y += 28 * S + 14 * S
 
-    # rows
-    for label, keys in ROWS:
-        d.rounded_rectangle([PAD * S, y, (POPUP_W - PAD) * S, y + row_h],
-                            radius=8 * S, fill=PANEL)
-        cy = y + row_h / 2
-        vtext(d, PAD * S + ROW_PAD_X * S, cy, label, label_f, TEXT)
+    def draw_rows(y, rows):
+        right = (POPUP_W - PAD - ROW_PAD_X) * S
+        for label, keys in rows:
+            d.rounded_rectangle([PAD * S, y, (POPUP_W - PAD) * S, y + row_h],
+                                radius=8 * S, fill=PANEL)
+            cy = y + row_h / 2
+            vtext(d, PAD * S + ROW_PAD_X * S, cy, label, label_f, TEXT)
 
-        # keys, laid out right-to-left from the row's right padding
-        widths = [max(KBD_MIN_W * S, tw(d, k, kbd_f) + KBD_PAD_X * 2 * S) for k in keys]
-        sep_w = tw(d, "+", sep_f) + 8 * S
-        total = sum(widths) + sep_w * (len(keys) - 1)
-        kx = (POPUP_W - PAD - ROW_PAD_X) * S - total
+            if keys is None:
+                # .unset.optional: muted, regular weight
+                vtext(d, right - tw(d, "Not set", unset_f), cy, "Not set", unset_f, MUTED)
+                y += row_h + ROW_GAP * S
+                continue
 
-        for i, (k, bw) in enumerate(zip(keys, widths)):
-            if i:
-                vtext(d, kx + 4 * S, cy, "+", sep_f, MUTED)
-                kx += sep_w
-            d.rounded_rectangle([kx, cy - kbd_h / 2, kx + bw, cy + kbd_h / 2],
-                                radius=5 * S, fill=KEY_FILL, outline=KEY_EDGE,
-                                width=max(1, int(S)))
-            b = d.textbbox((0, 0), k, font=kbd_f)
-            d.text((kx + (bw - (b[2] - b[0])) / 2 - b[0], cy - (b[3] + b[1]) / 2),
-                   k, font=kbd_f, fill=TEXT)
-            kx += bw
-        y += row_h + ROW_GAP * S
+            # keys, laid out right-to-left from the row's right padding
+            widths = [max(KBD_MIN_W * S, tw(d, k, kbd_f) + KBD_PAD_X * 2 * S) for k in keys]
+            sep_w = tw(d, "+", sep_f) + 8 * S
+            total = sum(widths) + sep_w * (len(keys) - 1)
+            kx = right - total
 
-    y += (14 - ROW_GAP) * S
+            for i, (k, bw) in enumerate(zip(keys, widths)):
+                if i:
+                    vtext(d, kx + 4 * S, cy, "+", sep_f, MUTED)
+                    kx += sep_w
+                d.rounded_rectangle([kx, cy - kbd_h / 2, kx + bw, cy + kbd_h / 2],
+                                    radius=5 * S, fill=KEY_FILL, outline=KEY_EDGE,
+                                    width=max(1, int(S)))
+                b = d.textbbox((0, 0), k, font=kbd_f)
+                d.text((kx + (bw - (b[2] - b[0])) / 2 - b[0], cy - (b[3] + b[1]) / 2),
+                       k, font=kbd_f, fill=TEXT)
+                kx += bw
+            y += row_h + ROW_GAP * S
+        return y + (LIST_GAP - ROW_GAP) * S
+
+    y = draw_rows(y, CORE_ROWS)
+
+    # h2, indented 2px
+    vtext(d, (PAD + 2) * S, y + HEADING_H / 2 * S, HEADING, heading_f, MUTED)
+    y += (HEADING_H + HEADING_GAP) * S
+
+    y = draw_rows(y, EXTRA_ROWS)
 
     # button
     d.rounded_rectangle([PAD * S, y, (POPUP_W - PAD) * S, y + btn_h],
@@ -127,9 +163,10 @@ def screenshot():
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, 6], fill=ACCENT)
 
-    # popup, drawn at 6x then reduced to a 1.85x display scale
+    # popup, drawn at 6x then reduced to the largest display scale (up to 1.85x)
+    # that still leaves a margin above and below
     raw = popup(6)
-    scale = 1.85
+    scale = min(1.85, (H - 100) / (raw.height / 6))
     pw, ph = int(POPUP_W * scale), int(raw.height / 6 * scale)
     card = raw.resize((pw, ph), Image.LANCZOS)
 
@@ -159,8 +196,8 @@ def screenshot():
         d.text((112, 372 + i * 34), line, font=body, fill=MUTED)
 
     for i, line in enumerate([
-        "Unassigned shortcuts are flagged,",
-        "and one click opens Chrome's editor.",
+        "Next, previous, mute, volume and speed",
+        "are one click away in Chrome's editor.",
     ]):
         d.text((112, 470 + i * 34), line, font=body, fill=MUTED)
 

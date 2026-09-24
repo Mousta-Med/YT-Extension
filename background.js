@@ -1,4 +1,110 @@
 // Background service worker for YouTube Global Controls
+
+// Commands that drive YouTube's own player API instead of the <video> element.
+// That API lives on the player element in the page's main world, out of reach
+// of the isolated content script, so these are injected with chrome.scripting.
+// Going through the API keeps YouTube's controls, settings menu and remembered
+// volume and speed in step, which poking the <video> element directly would not.
+const PLAYER_COMMANDS = new Set([
+  'next-video',
+  'previous-video',
+  'toggle-mute',
+  'volume-up',
+  'volume-down',
+  'speed-up',
+  'speed-down'
+]);
+
+// Runs inside the YouTube page (world: 'MAIN'). Chrome serializes this function
+// into the page, so it must not reference anything outside its own body.
+function runPlayerCommand(command) {
+  const VOLUME_STEP = 10;
+
+  // Shorts pages keep a hidden #movie_player around too, so pick by page.
+  const onShorts = location.pathname.startsWith('/shorts/');
+  const player = document.getElementById(onShorts ? 'shorts-player' : 'movie_player');
+  if (typeof player?.getVideoData !== 'function' || !player.getVideoData()?.video_id) {
+    return false;
+  }
+
+  // The Shorts player ignores nextVideo(); the feed moves through its own
+  // up/down buttons instead.
+  const clickShortsButton = (id) => {
+    const button = document.querySelector(`#${id} button`);
+    if (!button) return false;
+    button.click();
+    return true;
+  };
+
+  const videoIdOf = (url) => {
+    const { pathname, searchParams } = new URL(url);
+    if (pathname === '/watch') return searchParams.get('v');
+    if (pathname.startsWith('/shorts/')) return pathname.split('/')[2] || null;
+    return null;
+  };
+
+  // previousVideo() only steps back inside a playlist, and does nothing on its
+  // first item. Otherwise "previous" means the video this tab showed before, so
+  // go back through history, but only when that entry really is another video.
+  // Blindly calling history.back() could land on the homepage or leave YouTube.
+  const previousVideo = () => {
+    if (player.getPlaylistIndex?.() > 0) {
+      player.previousVideo();
+      return true;
+    }
+
+    // The Navigation API only lists this tab's same-origin entries, so an
+    // entry from another site never shows up here to be mistaken for a video.
+    const nav = window.navigation;
+    const previous = nav?.currentEntry && nav.entries()[nav.currentEntry.index - 1];
+    const previousId = previous?.url && videoIdOf(previous.url);
+    if (!previousId || previousId === player.getVideoData().video_id) return false;
+
+    history.back();
+    return true;
+  };
+
+  // Steps through the same speeds as YouTube's settings menu and its < > keys.
+  const stepSpeed = (faster) => {
+    const rates = player.getAvailablePlaybackRates();
+    const current = player.getPlaybackRate();
+    const target = faster
+      ? rates.find(rate => rate > current)
+      : rates.findLast(rate => rate < current);
+    if (target === undefined) return false; // already at the fastest or slowest
+    player.setPlaybackRate(target);
+    return true;
+  };
+
+  switch (command) {
+    case 'next-video':
+      if (onShorts) return clickShortsButton('navigation-button-down');
+      player.nextVideo();
+      return true;
+    case 'previous-video':
+      return onShorts ? clickShortsButton('navigation-button-up') : previousVideo();
+    case 'toggle-mute':
+      if (player.isMuted()) player.unMute();
+      else player.mute();
+      return true;
+    case 'volume-up':
+      // Raising the volume while muted should be audible, as with YouTube's
+      // own arrow keys.
+      player.unMute();
+      player.setVolume(Math.min(100, player.getVolume() + VOLUME_STEP));
+      return true;
+    case 'volume-down':
+      player.setVolume(Math.max(0, player.getVolume() - VOLUME_STEP));
+      return true;
+    case 'speed-up':
+      return stepSpeed(true);
+    case 'speed-down':
+      return stepSpeed(false);
+    default:
+      return false;
+  }
+}
+
 class YouTubeGlobalControls {
   constructor() {
     this.youtubeTabId = null;
@@ -91,6 +197,7 @@ class YouTubeGlobalControls {
   // the caller can decide whether a different tab is worth trying.
   async deliver(command) {
     if (!this.youtubeTabId) return false;
+    if (PLAYER_COMMANDS.has(command)) return this.runInPage(command);
 
     try {
       await chrome.tabs.sendMessage(this.youtubeTabId, { action: command });
@@ -108,6 +215,23 @@ class YouTubeGlobalControls {
       } catch {
         return false;
       }
+    }
+  }
+
+  // Needs no content script, so there is nothing to inject and retry. Failing
+  // here means the cached tab is gone or no longer on YouTube, where the host
+  // permission stops the injection.
+  async runInPage(command) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: this.youtubeTabId },
+        world: 'MAIN',
+        func: runPlayerCommand,
+        args: [command]
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 

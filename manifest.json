@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YouTube Global Controls",
-  "version": "1.0.4",
-  "description": "Global shortcuts for YouTube play/pause, 10s seek and Picture-in-Picture. Pins the tab while a video is playing.",
+  "version": "1.1.0",
+  "description": "Global YouTube shortcuts: play/pause, next/previous, seek, mute, volume, speed and Picture-in-Picture. Pins the tab while playing.",
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
@@ -71,6 +71,27 @@
       },
       "global": true,
       "description": "Skip forward 10 seconds"
+    },
+    "next-video": {
+      "description": "Next video"
+    },
+    "previous-video": {
+      "description": "Previous video"
+    },
+    "toggle-mute": {
+      "description": "Mute / unmute"
+    },
+    "volume-up": {
+      "description": "Volume up 10%"
+    },
+    "volume-down": {
+      "description": "Volume down 10%"
+    },
+    "speed-up": {
+      "description": "Speed up playback"
+    },
+    "speed-down": {
+      "description": "Slow down playback"
     }
   }
-} 
+}

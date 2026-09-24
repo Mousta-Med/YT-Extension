@@ -8,6 +8,8 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
 - Play/Pause videos from anywhere
 - Picture-in-Picture mode control
 - Skip forward/backward 10 seconds
+- Next / previous video, in playlists, "Up next" and Shorts
+- Mute, volume and playback speed
 - Works even when Chrome is minimized or you're on other tabs
 
 ⌨️ **Keyboard Shortcuts**
@@ -22,9 +24,23 @@ A lightweight Chrome extension that provides global keyboard shortcuts to contro
 > manifest: you can rebind these to any combination you like at
 > `chrome://extensions/shortcuts` and still keep them set to **Global**.
 
+➕ **More Controls** (no default key — assign your own)
+- Next video
+- Previous video
+- Mute / unmute
+- Volume up / down (10% steps)
+- Speed up / slow down (YouTube's own speed steps, 0.25× to 2×)
+
+> Chrome lets an extension ship default keys for at most **four** commands, so
+> these start as **Not set**. Give the ones you want a key at
+> `chrome://extensions/shortcuts` and set their scope to **Global** — Chrome
+> puts every key you add yourself in the **In Chrome** scope, which only works
+> while Chrome is focused.
+
 🎛️ **Shortcut Overview Popup**
 - Click the toolbar icon to see every shortcut and its current binding
-- Unassigned shortcuts are called out, so you notice before wondering why nothing happens
+- Unassigned default shortcuts are called out, so you notice before wondering why nothing happens
+- The extra controls are listed separately, so unset ones don't look like a fault
 - One click opens Chrome's shortcut editor
 
 > Chrome does not let an extension set its own shortcuts (`chrome.commands.update`
@@ -107,7 +123,19 @@ mislabelled package.
 3. **Smart Tab Management**
    - Use `Ctrl+Shift+1` to play/pause - tab automatically pins when playing, unpins when paused
    - Use `Ctrl+Shift+2` for Picture-in-Picture without affecting tab pin status
-   - Skip controls work normally without affecting pinning
+   - Skip controls and the extra controls work normally without affecting pinning
+
+### Next and Previous
+
+- **In a playlist or mix** they step through the playlist
+- **Outside a playlist**, Next plays YouTube's "Up next" video, and Previous
+  goes back to the video the tab played before — only when that really was a
+  video, so it never backs out to the homepage or off YouTube. On a video you
+  opened directly, Previous does nothing
+- **On Shorts** they move to the next or previous short
+
+Mute, volume and speed go through YouTube's own player, so its controls and
+settings menu stay in step and your choice carries over to the next video.
 
 ### How It Works
 
@@ -131,6 +159,11 @@ The extension automatically:
 - Check for notification messages that guide you
 - Make sure no other application is using the same shortcuts
 
+**An extra control (next, previous, mute, volume, speed) does nothing?**
+- It has no key until you assign one at `chrome://extensions/shortcuts`
+- If it only works while Chrome is focused, switch its scope to **Global**
+- Speed up / slow down stop at 2× and 0.25×
+
 **Picture-in-Picture not working?**
 - Ensure the video is loaded and playing
 - Some videos may not support PiP due to restrictions
@@ -148,6 +181,9 @@ The extension automatically:
 - **Manifest V3** - Latest Chrome extension API
 - **Service Worker** (`background.js`) - Handles global shortcuts and tab management
 - **Content Script** (`content.js`) - Interacts with YouTube pages
+- **Player API Injection** - Next/previous, mute, volume and speed call YouTube's
+  own player API, injected into the page with `chrome.scripting` because the
+  isolated content script cannot reach it
 - **Dynamic Script Injection** - Automatically handles unvisited tabs
 
 ### Key Features
@@ -189,6 +225,10 @@ The extension automatically:
 - Toggle Picture-in-Picture (no pinning effect)
 - Skip backward 10 seconds
 - Skip forward 10 seconds
+- Next video / Previous video (no default key)
+- Mute / unmute (no default key)
+- Volume up / down 10% (no default key)
+- Speed up / slow down playback (no default key)
 
 ## Development
 
