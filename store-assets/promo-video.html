@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YouTube Global Controls — promo video</title>
+<!--
+  Promo video scene. build_promo_video.py loads this page in headless Chrome,
+  calls renderAt(t) for every frame and pipes the screenshots into ffmpeg; it
+  also reads audioCues() so promo_audio.py can score the same timeline.
+  Everything on screen is a pure function of t: no CSS transitions, no timers.
+  Open promo-video.html?scrub in a browser to scrub the timeline by hand.
+
+  The story: a developer codes while a tutorial plays in Chrome behind the
+  editor. They pause for a call, resume (the tab pins itself), jump back 10 s,
+  pop the video out to Picture-in-Picture, minimize Chrome and skip ahead —
+  all without leaving the editor. Then the popup, and assigning an extra key on
+  chrome://extensions/shortcuts. Every effect shown matches background.js,
+  content.js and popup.js. The extension draws nothing on screen itself, so the
+  only annotations are pointer callouts, never UI-looking toasts.
+-->
+<style>
+  :root {
+    --bg: #171921;
+    --panel: #212430;
+    --text: #eef0f6;
+    --muted: #969caf;
+    --key-fill: #3d4254;
+    --key-edge: #5c637a;
+    --accent: #f33c3c;
+    --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --ui-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --mono: "Cascadia Code", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; width: 1920px; height: 1080px; overflow: hidden;
+    background: #0d0f14; font-family: var(--ui); color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #stage { position: absolute; inset: 0; overflow: hidden; }
+  .topbar { position: absolute; left: 0; right: 0; top: 0; height: 6px; background: var(--accent); z-index: 50; }
+
+  /* ---------- desktop (the camera moves this layer) ---------- */
+  #world { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+  #wallpaper {
+    position: absolute; inset: -200px;
+    background:
+      radial-gradient(900px 700px at 18% 22%, rgba(120, 60, 170, .30), transparent 70%),
+      radial-gradient(900px 700px at 88% 86%, rgba(243, 60, 60, .16), transparent 70%),
+      radial-gradient(1200px 900px at 60% 40%, rgba(40, 70, 140, .20), transparent 70%),
+      #0f1117;
+  }
+  #dim { position: absolute; inset: -200px; background: #171921; opacity: 0; pointer-events: none; z-index: 20; }
+
+  .window {
+    position: absolute; border-radius: 12px; overflow: hidden; background: var(--bg);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .07);
+  }
+
+  /* ---------- browser chrome (shared by the desktop window and the card) ---------- */
+  #browser { left: 80px; top: 170px; width: 1240px; height: 700px; background: #1b1d25; z-index: 1; }
+  .tabstrip { position: absolute; left: 0; top: 0; right: 0; height: 46px; background: #111319; }
+  .tab {
+    position: absolute; top: 8px; height: 38px; display: flex; align-items: center; gap: 10px;
+    padding: 0 14px; border-radius: 10px 10px 0 0; color: #7d8397; font-size: 15px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .tab.active { background: #1b1d25; color: #b9bdcb; }
+  .tab .fav { width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0; }
+  .tab .title { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .tab .close { color: #6b7185; font-size: 13px; flex-shrink: 0; }
+  /* A plain red square: the address bar names the site, no logo needed. */
+  .fav-yt { background: var(--accent); border-radius: 5px !important; }
+  .speaker { display: flex; align-items: flex-end; gap: 2px; height: 14px; flex-shrink: 0; }
+  .speaker i { display: block; width: 3px; background: #b9bdcb; border-radius: 1px; }
+  .toolbar {
+    position: absolute; left: 0; right: 0; top: 46px; height: 50px; background: #1b1d25;
+    display: flex; align-items: center; gap: 14px; padding: 0 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, .06);
+  }
+  .nav { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #3e4353; flex-shrink: 0; }
+  .omnibox {
+    flex: 1; height: 34px; border-radius: 17px; background: #111319; display: flex;
+    align-items: center; padding: 0 16px; font-size: 16px; color: #7d8397; white-space: nowrap;
+  }
+  .omnibox b { color: #b9bdcb; font-weight: 400; }
+  .ext-icon {
+    width: 30px; height: 30px; border-radius: 7px; position: relative; flex-shrink: 0;
+    background: #555b70; box-shadow: inset 0 0 0 3px #3c4152;
+  }
+  .ext-icon::after {
+    content: ""; position: absolute; left: 11px; top: 8px;
+    border-left: 11px solid var(--accent); border-top: 7px solid transparent; border-bottom: 7px solid transparent;
+  }
+  .page { position: absolute; left: 0; right: 0; top: 96px; bottom: 0; }
+
+  /* player */
+  #player { position: absolute; left: 24px; top: 20px; width: 832px; height: 468px; border-radius: 12px; overflow: hidden; background: #000; }
+  #art, #pipArt { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .pcontrols {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 70px; padding: 0 18px 12px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, .75));
+    display: flex; align-items: flex-end; gap: 18px; font-size: 16px;
+  }
+  .ptrack { position: absolute; left: 18px; right: 18px; bottom: 52px; height: 5px; background: rgba(255, 255, 255, .25); border-radius: 3px; }
+  .pfill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 3px; }
+  .pknob { position: absolute; top: -5px; width: 15px; height: 15px; margin-left: -7px; border-radius: 50%; background: var(--accent); }
+  .ghost { position: absolute; top: -6px; width: 3px; height: 17px; margin-left: -1px; background: #fff; border-radius: 1px; opacity: 0; }
+  .pbtn { width: 22px; height: 22px; position: relative; flex-shrink: 0; }
+  .ic-play::after { content: ""; position: absolute; left: 4px; top: 2px; border-left: 16px solid #fff; border-top: 9px solid transparent; border-bottom: 9px solid transparent; }
+  .ic-pause::before, .ic-pause::after { content: ""; position: absolute; top: 2px; width: 6px; height: 18px; background: #fff; border-radius: 1px; }
+  .ic-pause::before { left: 3px; } .ic-pause::after { left: 13px; }
+  .ic-next::before { content: ""; position: absolute; left: 2px; top: 3px; border-left: 13px solid #fff; border-top: 8px solid transparent; border-bottom: 8px solid transparent; }
+  .ic-next::after { content: ""; position: absolute; left: 15px; top: 3px; width: 4px; height: 16px; background: #fff; }
+  .ic-vol::before { content: ""; position: absolute; left: 2px; top: 7px; width: 6px; height: 8px; background: #fff; }
+  .ic-vol::after { content: ""; position: absolute; left: 3px; top: 2px; border-right: 10px solid #fff; border-top: 9px solid transparent; border-bottom: 9px solid transparent; }
+  .ptime { color: #fff; font-variant-numeric: tabular-nums; }
+  .pspeed { margin-left: auto; padding: 1px 8px; border-radius: 5px; background: rgba(255, 255, 255, .18); font-weight: 600; }
+  .ic-pipbox { width: 24px; height: 18px; border: 2px solid #fff; border-radius: 3px; position: relative; margin-bottom: 2px; }
+  .ic-pipbox::after { content: ""; position: absolute; right: 2px; bottom: 2px; width: 9px; height: 6px; background: #fff; }
+  .pbig {
+    position: absolute; left: 50%; top: 50%; width: 110px; height: 110px; margin: -55px 0 0 -55px;
+    border-radius: 50%; background: rgba(0, 0, 0, .55); opacity: 0;
+  }
+  .pbig .pbtn { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(2.2); }
+  .pip-placeholder {
+    position: absolute; inset: 0; background: #0b0c10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; color: var(--muted); font-size: 20px; opacity: 0;
+  }
+  .glyph { width: 70px; height: 46px; border: 3px solid #4a4f60; border-radius: 6px; position: relative; }
+  .glyph::after { content: ""; position: absolute; right: 5px; bottom: 5px; width: 28px; height: 18px; background: #4a4f60; border-radius: 2px; }
+  .vtitle { position: absolute; left: 24px; top: 504px; width: 832px; font-size: 22px; font-weight: 600; color: #d5d8e2; }
+  .vmeta { position: absolute; left: 24px; top: 540px; font-size: 15px; color: #7d8397; display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #f7b267, #e0607e); }
+  .upnext { position: absolute; left: 884px; top: 20px; width: 332px; }
+  .upnext h4 { margin: 0 0 12px; font-size: 16px; font-weight: 600; color: #b9bdcb; }
+  .un-item { display: flex; gap: 12px; margin-bottom: 14px; }
+  .un-thumb { width: 150px; height: 84px; border-radius: 8px; flex-shrink: 0; }
+  .un-lines { flex: 1; padding-top: 4px; }
+  .un-lines i { display: block; height: 11px; border-radius: 5px; background: #2a2e3b; margin-bottom: 9px; }
+
+  /* ---------- editor (focused the whole time) ---------- */
+  #editor { left: 1010px; top: 250px; width: 830px; height: 600px; background: #16181f; z-index: 2; }
+  .ed-title {
+    height: 40px; background: #20232d; display: flex; align-items: center; padding: 0 16px; gap: 8px;
+    font-size: 14px; color: var(--text);
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .ed-body { position: absolute; left: 0; right: 0; top: 40px; bottom: 0; display: flex; }
+  .ed-side { width: 180px; background: #13151b; padding: 14px 16px; font-size: 14px; color: var(--muted); line-height: 2; flex-shrink: 0; }
+  .ed-side .on { color: var(--text); }
+  .ed-code { flex: 1; padding-top: 16px; font: 19px/32px var(--mono); font-variant-ligatures: none; color: #c9cede; white-space: pre; }
+  .ln { display: inline-block; width: 40px; text-align: right; margin-right: 20px; color: #4b5063; }
+  .k { color: #c792ea; } .s { color: #c3e88d; } .f { color: #82aaff; } .n { color: #f78c6c; }
+  .caret { display: inline-block; width: 2px; height: 23px; background: #eef0f6; vertical-align: -5px; }
+
+  /* ---------- PiP window ---------- */
+  #pip {
+    position: absolute; left: 0; top: 0; width: 500px; height: 281px; border-radius: 10px; overflow: hidden; background: #000; z-index: 8;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .6), 0 0 0 1px #5c637a; opacity: 0; transform-origin: 0 0;
+  }
+  .pip-bar { position: absolute; left: 0; right: 0; top: 0; height: 40px; background: linear-gradient(rgba(0, 0, 0, .55), transparent); }
+  .pip-bar span { position: absolute; top: 9px; right: 14px; font-size: 16px; color: #fff; opacity: .85; }
+  .pip-time { position: absolute; left: 14px; bottom: 14px; font: 700 30px/1 var(--ui); color: #fff; font-variant-numeric: tabular-nums; text-shadow: 0 1px 8px rgba(0, 0, 0, .9); }
+  .pip-track { position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(255, 255, 255, .25); }
+  .pip-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+
+  /* ---------- taskbar (left-aligned, so the Chrome button sits clear of the keycaps) ---------- */
+  #taskbar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 64px; z-index: 9;
+    background: rgba(16, 17, 23, .9); border-top: 1px solid rgba(255, 255, 255, .07);
+    display: flex; align-items: center; gap: 10px; padding-left: 12px;
+  }
+  .tb-icon { position: relative; width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+  .tb-icon.lit { background: rgba(255, 255, 255, .08); }
+  .tb-start { display: grid; grid-template-columns: 11px 11px; gap: 3px; align-content: center; justify-content: center; }
+  .tb-start i { width: 11px; height: 11px; background: #6ea8ff; border-radius: 2px; }
+  .tb-globe { width: 30px; height: 30px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #9ecbff, #3a78d8); box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .25); }
+  .tb-code { width: 30px; height: 30px; border-radius: 7px; background: #3b6fd8; font: 700 13px/30px var(--mono); text-align: center; color: #fff; }
+  .tb-folder { width: 30px; height: 24px; border-radius: 4px; background: #f2c14e; }
+  .tb-dot { position: absolute; bottom: 3px; left: 50%; width: 6px; height: 4px; margin-left: -3px; border-radius: 2px; background: #9aa0b4; }
+  .tb-dot.on { width: 16px; margin-left: -8px; background: var(--accent); }
+  .tb-clock { position: absolute; right: 24px; font-size: 16px; color: var(--muted); }
+
+  /* ---------- pointer callouts: narration that points at what changed ---------- */
+  .callout { position: absolute; left: 0; top: 0; z-index: 12; opacity: 0; }
+  .callout .stem { position: absolute; background: var(--accent); }
+  .callout .pill {
+    position: absolute; white-space: nowrap; display: flex; align-items: center; gap: 10px;
+    padding: 10px 22px; border-radius: 999px; background: var(--accent); color: #fff;
+    font: 700 26px/1 var(--ui); box-shadow: 0 10px 30px rgba(243, 60, 60, .35);
+  }
+
+  /* ---------- overlays (never moved by the camera) ---------- */
+  .scrim-top { position: absolute; left: 0; right: 0; top: 0; height: 250px; background: linear-gradient(rgba(10, 11, 16, .94), rgba(10, 11, 16, 0)); }
+  .scrim-bot { position: absolute; left: 0; right: 0; bottom: 0; height: 280px; background: linear-gradient(rgba(10, 11, 16, 0), rgba(10, 11, 16, .9) 55%); }
+
+  #brand { position: absolute; left: 40px; top: 30px; display: flex; align-items: center; gap: 14px; font: 600 26px var(--ui); color: #d5d8e2; }
+  #brand .ext-icon { width: 44px; height: 44px; border-radius: 11px; box-shadow: inset 0 0 0 4px #3c4152; }
+  #brand .ext-icon::after { left: 17px; top: 12px; border-left-width: 15px; border-top-width: 10px; border-bottom-width: 10px; }
+
+  #call {
+    position: absolute; left: 1430px; top: 136px; width: 410px; height: 98px;
+    border-radius: 16px; background: #212430; border: 1px solid #5c637a;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .5); display: flex; align-items: center; gap: 16px; padding: 0 20px;
+  }
+  .call-av { position: relative; width: 54px; height: 54px; border-radius: 50%; background: #3d4254; display: flex; align-items: center; justify-content: center; font: 700 24px var(--ui); flex-shrink: 0; }
+  .call-ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
+  .call-txt { flex: 1; min-width: 0; }
+  .call-name { font: 700 26px/1.2 var(--ui); }
+  .call-sub { font-size: 21px; color: #b4b9c9; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .call-btn { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; position: relative; }
+  .call-btn.no { background: #d83a3a; }
+  .call-btn.yes { background: #2fa866; }
+  .call-btn svg { position: absolute; left: 11px; top: 11px; width: 22px; height: 22px; }
+  .call-btn.no svg { transform: rotate(135deg); }
+
+  #caption {
+    position: absolute; left: 0; right: 0; top: 30px; text-align: center;
+    font: 600 62px/1.12 var(--ui-display); letter-spacing: -.5px; text-shadow: 0 4px 24px rgba(0, 0, 0, .6);
+  }
+  #caption .line { display: block; }
+  #caption em { font-style: normal; color: var(--accent); }
+  #caption .kicker { display: block; margin-bottom: 10px; font: 700 36px/1 var(--ui); letter-spacing: 1px; color: #d5d8e2; text-shadow: none; }
+  #caption.left { left: 140px; right: auto; top: 300px; width: 760px; text-align: left; font-size: 70px; }
+  #caption.left .kicker { font-size: 34px; letter-spacing: 0; margin-bottom: 20px; color: #b4b9c9; }
+
+  #keyrow { position: absolute; left: 0; right: 0; bottom: 92px; display: flex; justify-content: center; align-items: center; gap: 30px; }
+  #keyrow.left { left: 140px; right: auto; bottom: auto; top: 640px; justify-content: flex-start; flex-direction: column; align-items: flex-start; gap: 18px; }
+  #keys { display: flex; align-items: center; gap: 20px; }
+  .kc {
+    position: relative; min-width: 104px; height: 104px; padding: 0 30px; border-radius: 18px;
+    background: var(--key-fill); border: 3px solid var(--key-edge);
+    display: flex; align-items: center; justify-content: center;
+    font: 600 44px/1 var(--ui); color: var(--text);
+    box-shadow: 0 9px 0 #262a36, 0 16px 30px rgba(0, 0, 0, .45);
+  }
+  .kc.custom { border-style: dashed; border-color: var(--accent); }
+  .kc .tag { position: absolute; left: 50%; top: -30px; transform: translateX(-50%); white-space: nowrap; font: 700 17px/1 var(--ui); letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); }
+  .kplus { font: 400 40px var(--ui); color: var(--muted); }
+  #klabel { font: 600 32px var(--ui); color: #b4b9c9; min-width: 300px; }
+
+  /* ---------- the browser card for the last beat ---------- */
+  #card {
+    position: absolute; left: 940px; top: 70px; width: 900px; height: 910px; border-radius: 12px; overflow: hidden;
+    background: #1b1d25; opacity: 0; box-shadow: 0 30px 90px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
+  }
+  .cpage { position: absolute; left: 0; right: 0; top: 96px; bottom: 0; }
+  .c-player { position: absolute; left: 24px; top: 20px; width: 852px; height: 479px; border-radius: 12px; background: #0b0c10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--muted); font-size: 20px; }
+  #cPageSC { background: #171921; padding: 26px 32px; opacity: 0; }
+  #cPageSC h1 { margin: 0 0 20px; font: 600 28px var(--ui); }
+  .sc-card { background: #212430; border-radius: 12px; overflow: hidden; }
+  .sc-head { display: flex; align-items: center; gap: 14px; padding: 14px 22px; font: 600 21px var(--ui); border-bottom: 1px solid rgba(255, 255, 255, .06); }
+  .sc-row { display: flex; align-items: center; height: 52px; padding: 0 22px; gap: 16px; font-size: 18px; }
+  .sc-row + .sc-row { border-top: 1px solid rgba(255, 255, 255, .04); }
+  .sc-desc { flex: 1; color: #d5d8e2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sc-field {
+    position: relative; width: 220px; height: 36px; border-radius: 7px; background: #171921; border: 1px solid #3a3f50;
+    display: flex; align-items: center; gap: 6px; padding: 0 34px 0 10px; font: 600 15px var(--ui); color: var(--text); flex-shrink: 0;
+  }
+  .sc-field kbd { padding: 3px 7px; background: var(--key-fill); border: 1px solid var(--key-edge); border-radius: 5px; font: 600 14px/1 var(--ui); }
+  .sc-field .ph { color: var(--muted); font-weight: 400; }
+  .sc-field .pen { position: absolute; right: 10px; top: 8px; width: 18px; height: 18px; }
+  .sc-field.focus { border: 2px solid var(--accent); padding-left: 9px; }
+  .sc-scope {
+    width: 140px; height: 36px; border-radius: 7px; background: #2a2e3b; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 12px; font-size: 16px; flex-shrink: 0;
+  }
+  .sc-scope.off { opacity: .35; }
+  .sc-scope.global { background: rgba(243, 60, 60, .18); box-shadow: inset 0 0 0 1px rgba(243, 60, 60, .6); }
+
+  /* popup mock: popup.html's markup and styles, drawn at 2x */
+  #popup {
+    position: absolute; left: 0; top: 0; width: 620px; padding: 30px; border-radius: 16px;
+    background: var(--bg); border: 2px solid #3a3f50; opacity: 0; transform-origin: 100% 0;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .7); font-size: 26px;
+  }
+  #popup header { display: flex; align-items: center; gap: 18px; margin-bottom: 22px; font-size: 28px; font-weight: 600; }
+  #popup header .ext-icon { width: 52px; height: 52px; border-radius: 12px; box-shadow: inset 0 0 0 5px #3c4152; }
+  #popup header .ext-icon::after { left: 19px; top: 14px; border-left-width: 18px; border-top-width: 12px; border-bottom-width: 12px; }
+  #popup ul { list-style: none; margin: 0 0 22px; padding: 0; }
+  #popup li { position: relative; display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 20px; background: var(--panel); border-radius: 14px; overflow: hidden; }
+  #popup li + li { margin-top: 7px; }
+  #popup li .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--accent); opacity: 0; }
+  #popup h2 { margin: 0 0 12px 4px; color: var(--muted); font-size: 22px; font-weight: 600; }
+  #popup .keys { display: flex; align-items: center; gap: 8px; }
+  #popup kbd { min-width: 42px; padding: 6px 11px; background: var(--key-fill); border: 2px solid var(--key-edge); border-radius: 9px; font: 600 21px/1 var(--ui); text-align: center; }
+  #popup .sep { color: var(--muted); font-size: 18px; }
+  #popup .unset { color: var(--muted); font-size: 22px; }
+  #popup button { position: relative; width: 100%; height: 62px; background: var(--key-fill); color: var(--text); border: 2px solid var(--key-edge); border-radius: 14px; font: 600 24px var(--ui); }
+  #popup .note { margin: 18px 0 0; color: var(--muted); font-size: 22px; text-align: center; }
+
+  #fx { position: absolute; inset: 0; pointer-events: none; }
+  #cursor { position: absolute; left: 0; top: 0; opacity: 0; transform-origin: 3px 3px; }
+
+  #endcard { position: absolute; inset: 0; opacity: 0; background: radial-gradient(900px 600px at 50% 48%, #212430, #171921 70%); }
+  #endcard .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 10px; }
+  #endcard .big-icon { width: 170px; height: 170px; border-radius: 40px; background: #555b70; box-shadow: inset 0 0 0 15px #3c4152; position: relative; }
+  #endcard .big-icon::after { content: ""; position: absolute; left: 64px; top: 49px; border-left: 55px solid var(--accent); border-top: 36px solid transparent; border-bottom: 36px solid transparent; }
+  #endcard h1 { margin: 38px 0 0; font: 700 88px/1.05 var(--ui-display); letter-spacing: -1px; }
+  #endcard .tag { margin: 16px 0 0; font-size: 40px; color: var(--muted); }
+  #endcard .cta {
+    position: relative; overflow: hidden; margin-top: 42px; padding: 22px 48px; border-radius: 999px;
+    background: var(--accent); color: #fff; font: 700 40px var(--ui);
+  }
+  #endcard .shine { position: absolute; top: -20px; bottom: -20px; width: 120px; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .35), transparent); transform: skewX(-20deg); }
+  #endcard .chips { margin-top: 38px; font-size: 28px; color: #a3a9bb; }
+  #endcard .foot { margin-top: 14px; font-size: 28px; color: #a3a9bb; }
+  #endcard .foot2 { margin-top: 12px; font-size: 22px; color: #7d8397; }
+
+  #scrub { position: fixed; left: 20px; right: 20px; bottom: 8px; z-index: 99; display: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="world">
+    <div id="wallpaper"></div>
+
+    <div id="browser" class="window">
+      <div class="tabstrip">
+        <div class="tab" id="tabDocs"><div class="fav" style="background:#6b7185"></div><span class="title">API docs</span><span class="close">✕</span></div>
+        <div class="tab" id="tabIssue"><div class="fav" style="background:#4b7bec"></div><span class="title">Issue #42 · pagination</span><span class="close">✕</span></div>
+        <div class="tab active" id="tabYT"><div class="fav fav-yt"></div><span class="title" id="tabYTTitle"></span><span class="speaker" id="speaker"><i></i><i></i><i></i></span><span class="close">✕</span></div>
+      </div>
+      <div class="toolbar">
+        <div class="nav"></div><div class="nav"></div>
+        <div class="omnibox"><b>youtube.com</b><span id="vurl"></span></div>
+        <div class="ext-icon"></div>
+      </div>
+      <div class="page">
+        <div id="player">
+          <canvas id="art" width="832" height="468"></canvas>
+          <div class="pip-placeholder" id="pipPlaceholder"><div class="glyph"></div>Playing in picture-in-picture</div>
+          <div class="pbig" id="pbig"><div class="pbtn ic-play"></div></div>
+          <div class="pcontrols">
+            <div class="ptrack"><div class="pfill" id="pfill"></div><div class="ghost" id="pghost"></div><div class="pknob" id="pknob"></div></div>
+            <div class="pbtn" id="pplay"></div>
+            <div class="pbtn ic-next"></div>
+            <div class="pbtn ic-vol"></div>
+            <div class="ptime" id="ptime"></div>
+            <div class="pspeed">1×</div>
+            <div class="ic-pipbox"></div>
+          </div>
+        </div>
+        <div class="vtitle" id="vtitle"></div>
+        <div class="vmeta"><div class="avatar"></div><span id="vchannel"></span></div>
+        <div class="upnext">
+          <h4>Up next</h4>
+          <div class="un-item"><div class="un-thumb" style="background:linear-gradient(135deg,#0c6e7a,#6ad0b3)"></div><div class="un-lines"><i style="width:95%"></i><i style="width:70%"></i><i style="width:45%"></i></div></div>
+          <div class="un-item"><div class="un-thumb" style="background:linear-gradient(135deg,#6b2d7a,#f39c6b)"></div><div class="un-lines"><i style="width:90%"></i><i style="width:60%"></i><i style="width:50%"></i></div></div>
+          <div class="un-item"><div class="un-thumb" style="background:linear-gradient(135deg,#243b7a,#7aa2f7)"></div><div class="un-lines"><i style="width:85%"></i><i style="width:75%"></i><i style="width:40%"></i></div></div>
+          <div class="un-item"><div class="un-thumb" style="background:linear-gradient(135deg,#7a3b24,#f7c97a)"></div><div class="un-lines"><i style="width:92%"></i><i style="width:65%"></i><i style="width:48%"></i></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="editor" class="window">
+      <div class="ed-title"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div><span style="margin-left:14px">app.js — my-api</span></div>
+      <div class="ed-body">
+        <div class="ed-side"><div>▾ my-api</div><div>&nbsp;&nbsp;▸ routes</div><div class="on">&nbsp;&nbsp;&nbsp;&nbsp;app.js</div><div>&nbsp;&nbsp;&nbsp;&nbsp;db.js</div><div>&nbsp;&nbsp;&nbsp;&nbsp;package.json</div></div>
+        <div class="ed-code" id="code"></div>
+      </div>
+    </div>
+
+    <div id="pip">
+      <canvas id="pipArt" width="500" height="281"></canvas>
+      <div class="pip-bar"><span>⤢ &nbsp;✕</span></div>
+      <div class="pip-time" id="pipTime"></div>
+      <div class="pip-track"><div class="pip-fill" id="pipFill"></div><div class="ghost" id="pipGhost" style="top:-5px;height:15px"></div></div>
+    </div>
+
+    <div id="taskbar">
+      <div class="tb-icon tb-start"><i></i><i></i><i></i><i></i></div>
+      <div class="tb-icon" id="tbBrowser"><div class="tb-globe"></div><div class="tb-dot"></div></div>
+      <div class="tb-icon lit" id="tbEditor"><div class="tb-code">{ }</div><div class="tb-dot on"></div></div>
+      <div class="tb-icon"><div class="tb-folder"></div></div>
+      <div class="tb-clock">10:42</div>
+    </div>
+
+    <div id="callouts"></div>
+    <div id="dim"></div>
+  </div>
+
+  <div class="scrim-top" id="scrimTop"></div>
+  <div class="scrim-bot" id="scrimBot"></div>
+  <div id="brand"><div class="ext-icon"></div>YouTube Global Controls</div>
+
+  <div id="call">
+    <div class="call-av">S<div class="call-ring" id="callRing"></div></div>
+    <div class="call-txt"><div class="call-name">Sam</div><div class="call-sub" id="callSub">Incoming call…</div></div>
+    <div class="call-btn no" id="callNo"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" fill="#fff"/></svg></div>
+    <div class="call-btn yes" id="callYes"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" fill="#fff"/></svg></div>
+  </div>
+
+  <div id="caption"></div>
+  <div id="keyrow"><div id="keys"></div><div id="klabel"></div></div>
+
+  <div id="card">
+    <div class="tabstrip">
+      <div class="tab active" id="cYT" style="left:10px;width:52px;padding-left:17px"><div class="fav fav-yt"></div></div>
+      <div class="tab" id="cDocs" style="left:70px;width:240px"><div class="fav" style="background:#6b7185"></div><span class="title">API docs</span><span class="close">✕</span></div>
+      <div class="tab" id="cIssue" style="left:314px;width:240px"><div class="fav" style="background:#4b7bec"></div><span class="title">Issue #42 · pagination</span><span class="close">✕</span></div>
+      <div class="tab" id="cExt" style="left:558px;width:0"><div class="fav" style="background:#8a90a3;border-radius:50%"></div><span class="title">Extensions – Keyboard shortcuts</span><span class="close">✕</span></div>
+    </div>
+    <div class="toolbar">
+      <div class="nav"></div><div class="nav"></div>
+      <div class="omnibox" id="cUrl"></div>
+      <div class="ext-icon" id="cExtIcon"></div>
+    </div>
+    <div class="cpage" id="cPageYT">
+      <div class="c-player"><div class="glyph"></div>Playing in picture-in-picture</div>
+      <div class="vtitle" style="top:516px">Build a REST API · Part 3</div>
+    </div>
+    <div class="cpage" id="cPageSC">
+      <h1>Keyboard shortcuts</h1>
+      <div class="sc-card">
+        <div class="sc-head"><div class="ext-icon"></div>YouTube Global Controls</div>
+        <div id="scRows"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup">
+    <header><div class="ext-icon"></div>YouTube Global Controls</header>
+    <ul>
+      <li><span>Play / pause</span><span class="keys"><kbd>Ctrl</kbd><span class="sep">+</span><kbd>Shift</kbd><span class="sep">+</span><kbd>1</kbd></span></li>
+      <li><span>Picture-in-Picture</span><span class="keys"><kbd>Ctrl</kbd><span class="sep">+</span><kbd>Shift</kbd><span class="sep">+</span><kbd>2</kbd></span></li>
+      <li><span>Back 10 seconds</span><span class="keys"><kbd>Ctrl</kbd><span class="sep">+</span><kbd>Shift</kbd><span class="sep">+</span><kbd>9</kbd></span></li>
+      <li><span>Forward 10 seconds</span><span class="keys"><kbd>Ctrl</kbd><span class="sep">+</span><kbd>Shift</kbd><span class="sep">+</span><kbd>0</kbd></span></li>
+    </ul>
+    <h2>More controls</h2>
+    <ul id="extras">
+      <li><div class="bar"></div><span>Next video</span><span class="unset">Not set</span></li>
+      <li><div class="bar"></div><span>Previous video</span><span class="unset">Not set</span></li>
+      <li><div class="bar"></div><span>Mute / unmute</span><span class="unset">Not set</span></li>
+      <li><div class="bar"></div><span>Volume up</span><span class="unset">Not set</span></li>
+      <li><div class="bar"></div><span>Volume down</span><span class="unset">Not set</span></li>
+      <li><div class="bar"></div><span>Speed up</span><span class="unset">Not set</span></li>
+      <li><div class="bar"></div><span>Slow down</span><span class="unset">Not set</span></li>
+    </ul>
+    <button id="popBtn">Change shortcuts</button>
+    <p class="note">Give extras a key and set them to "Global".</p>
+  </div>
+
+  <canvas id="fx" width="1920" height="1080"></canvas>
+  <svg id="cursor" width="40" height="52" viewBox="0 0 34 44"><path d="M3 3 L3 34 L11 26 L17 40 L23 37 L17 24 L28 24 Z" fill="#fff" stroke="#111" stroke-width="2.5" stroke-linejoin="round"/></svg>
+
+  <div id="endcard">
+    <div class="center">
+      <div class="big-icon" id="endIcon"></div>
+      <h1 id="endTitle">YouTube Global Controls</h1>
+      <p class="tag" id="endTag">Control YouTube from any app.</p>
+      <div class="cta" id="endCta">Free on the Chrome Web Store<div class="shine" id="endShine"></div></div>
+      <div class="chips" id="endChips">Windows · macOS · Linux &nbsp;·&nbsp; No data collected &nbsp;·&nbsp; Open source (MIT)</div>
+      <div class="foot" id="endFoot">Keys shown for Windows/Linux. On Mac, use Cmd instead of Ctrl.</div>
+      <div class="foot2" id="endFoot2">Not affiliated with YouTube or Google.</div>
+    </div>
+  </div>
+  <div class="topbar"></div>
+</div>
+<input id="scrub" type="range" min="0" max="1" step="0.001" value="0">
+
+<script>
+/* ================================================================
+   TIMELINE — every beat of the video lives in this table.
+   Times are seconds from the start; effects land 0.2 s after a key
+   goes down, when the signal dot reaches its target.
+   ================================================================ */
+const TL = {
+  duration: 33.5,
+  video: {
+    title: 'Build a REST API · Part 3', channel: 'Dev Tutorials · 84K views', id: 'r3stAp1-p3',
+    length: 160, start: 72,
+    // Lower-third inside the tutorial, by video time.
+    steps: [[0, 'Step 3 · Add a route'], [76, 'Step 4 · Test it']],
+  },
+  // Started by clicking the page, so the tab is not pinned: only the
+  // play/pause shortcut drives pinning, and pausing an unpinned tab is a no-op.
+  startPlaying: true,
+  startPinned: false,
+  playback: [                                  // play / seek changes (seeks ease over 0.3 s)
+    { t: 1.60, play: false },
+    { t: 6.00, play: true },
+    { t: 11.30, seek: -10 },
+    { t: 20.60, seek: 10 },
+  ],
+  pinned: [[6.10, true]],                      // shortcut play on /watch → tab pins
+  pip: [[15.80, true]],
+  minimized: [[18.40, true]],
+  keycaps: [
+    { a: -1, b: 22.45, presses: [
+      { t: 1.40, keys: ['Ctrl', 'Shift', '1'], label: 'Play / pause', target: 'player' },
+      { t: 5.80, keys: ['Ctrl', 'Shift', '1'], label: 'Play / pause', target: 'player' },
+      { t: 11.10, keys: ['Ctrl', 'Shift', '9'], label: 'Back 10 seconds', target: 'player' },
+      { t: 15.60, keys: ['Ctrl', 'Shift', '2'], label: 'Picture-in-Picture', target: 'player' },
+      // Flips with the "Chrome minimized?" caption so the keys never disagree with it.
+      { t: 20.40, keys: ['Ctrl', 'Shift', '0'], label: 'Forward 10 seconds', target: 'pip', flipAt: 18.45 },
+    ] },
+    { a: 26.3, b: 27.9, layout: 'left', presses: [
+      { t: 26.75, keys: ['Ctrl', 'Shift', '3'], label: 'Mute / unmute', target: 'scMuteField', custom: true },
+    ] },
+  ],
+  captions: [
+    { a: -1, b: 5.0, kicker: 'Call coming in?', text: 'Pause YouTube from <em>any app.</em>' },
+    { a: 5.1, b: 9.8, kicker: 'Call over?', text: 'Play again and <em>the tab pins itself.</em>' },
+    { a: 10.1, b: 14.3, kicker: 'Missed a step?', text: 'Jump back <em>10 seconds.</em>' },
+    { a: 14.6, b: 18.3, kicker: 'Picture-in-Picture', text: 'Pop it out and <em>keep coding.</em>' },
+    { a: 18.5, b: 22.45, kicker: 'Chrome minimized?', text: '<em>Still works.</em> Skip ahead 10 seconds.' },
+    { a: 22.5, b: 25.4, kicker: 'Assign keys for more:', text: 'Next, previous, mute,\n<em>volume and speed.</em>', layout: 'left' },
+    { a: 25.55, b: 28.5, kicker: 'On Chrome’s shortcuts page:', text: 'Pick a key, then set it\nto <em>Global.</em>', layout: 'left' },
+  ],
+  // Pointer callouts: they point at the thing that changed, so they read as narration.
+  callouts: [
+    { a: 6.7, b: 9.3, target: 'tabYT', text: 'Play key pins it · pause key unpins it', side: 'right', icon: 'pin' },
+    { a: 11.35, b: 12.9, target: 'ptime', text: '−10 s', side: 'above' },
+    { a: 19.05, b: 22.35, target: 'tbBrowser', text: 'Chrome minimized', side: 'above' },
+    { a: 20.65, b: 22.3, target: 'pipTime', text: '+10 s', side: 'above' },
+  ],
+  pulses: [[6.6, 'tabYT'], [7.0, 'tabYT'], [27.5, 'scMuteScope']],
+  // [t, x, y, scale]: push in on the tab strip while it pins.
+  camera: [[0, 0, 0, 1], [5.0, 0, 0, 1], [5.6, -20, -40, 1.2], [9.4, -20, -40, 1.2], [10.0, 0, 0, 1]],
+  call: { ringUntil: 2.6, answered: 2.6, lapse: [3.0, 3.8], ended: 4.2, leave: 4.4, length: 768 },
+  // Last beat: Chrome comes back, popup → chrome://extensions/shortcuts → key → Global.
+  dim: 22.35,
+  card: { a: 22.4 },
+  popup: { open: 23.45, rows: 23.8, hover: 25.25, press: 25.4, close: 25.45 },
+  page: { newTab: 25.5, focus: 26.2, fill: 26.95, global: 27.5 },
+  cursor: {
+    a: 22.85, b: 28.4, from: [1150, 760],
+    moves: [[22.9, 23.3, 'cExtIcon'], [24.9, 25.3, 'popBtn'], [25.7, 26.1, 'scMuteField', .9, .55], [27.0, 27.35, 'scMuteScope', .45, .55]],
+    clicks: [23.4, 25.4, 26.2, 27.45],
+  },
+  endcard: 28.6,
+};
+
+/* The editor: code being written, with the caret and typing schedule. */
+const CODE = [
+  { tok: [['k', 'const'], ['', ' express = '], ['f', 'require'], ['', '('], ['s', '"express"'], ['', ');']] },
+  { tok: [['k', 'const'], ['', ' app = '], ['f', 'express'], ['', '();']] },
+  { tok: [] },
+  { tok: [['', 'app.'], ['f', 'get'], ['', '('], ['s', '"/users"'], ['', ', '], ['k', 'async'], ['', ' (req, res) => {']] },
+  { tok: [['', '  '], ['k', 'const'], ['', ' users = '], ['k', 'await'], ['', ' db.users.'], ['f', 'all'], ['', '();']], reveal: [[0, 24], [1.1, 37]] },
+  { tok: [['', '  res.'], ['f', 'json'], ['', '(users);']], reveal: [[12.6, 0], [13.7, 11], [16.6, 11], [17.3, 18]] },
+  { tok: [['', '});']] },
+  { tok: [] },
+  { tok: [['', 'app.'], ['f', 'listen'], ['', '('], ['n', '3000'], ['', ');']], reveal: [[20.9, 0], [22.3, 17]] },
+];
+const CARET = [[0, 4], [1.15, 5], [20.85, 8]];   // [t, line index]
+
+/* chrome://extensions/shortcuts rows: the manifest's command descriptions. */
+const SHORTCUT_ROWS = [
+  ['Toggle YouTube video play/pause globally', '1'],
+  ['Toggle Picture-in-Picture mode', '2'],
+  ['Skip backward 10 seconds', '9'],
+  ['Skip forward 10 seconds', '0'],
+  ['Next video'], ['Previous video'], ['Mute / unmute', null, 'scMute'],
+  ['Volume up 10%'], ['Volume down 10%'], ['Speed up playback'], ['Slow down playback'],
+];
+
+/* ================================================================
+   Helpers
+   ================================================================ */
+const $ = id => document.getElementById(id);
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, p) => a + (b - a) * p;
+const easeInOut = p => p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+const easeOut = p => 1 - Math.pow(1 - p, 3);
+const easeIn = p => p * p * p;
+const easeOutBack = p => { const c = 1.7; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
+// 0..1 progress of t through [a, b], eased.
+const prog = (t, a, b, ease = easeInOut) => ease(clamp((t - a) / (b - a)));
+// Fade in over [a, a+fi], hold, fade out over [b-fo, b].
+const window01 = (t, a, b, fi = .3, fo = .3) => Math.min(prog(t, a, a + fi, easeOut), 1 - prog(t, b - fo, b));
+// Piecewise keyframes [[t, v], ...].
+function keys(t, frames, ease = easeInOut) {
+  if (t <= frames[0][0]) return frames[0][1];
+  for (let i = 1; i < frames.length; i++) {
+    const [t1, v1] = frames[i], [t0, v0] = frames[i - 1];
+    if (t <= t1) return lerp(v0, v1, ease(clamp((t - t0) / (t1 - t0))));
+  }
+  return frames[frames.length - 1][1];
+}
+const fmt = s => { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const setHTML = (el, html) => { if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
+const setText = (el, s) => { if (el.textContent !== s) el.textContent = s; };
+const kbds = k => ['Ctrl', 'Shift', k].map(x => `<kbd>${x}</kbd>`).join('<span style="color:#969caf">+</span>');
+
+// Eased 0..1 amount for an on/off state that flips at the listed times.
+function stateAmount(t, changes, initial, dur = .4, ease = easeInOut) {
+  let v = initial ? 1 : 0;
+  for (const [ct, on] of changes) {
+    if (ct > t) break;
+    v = lerp(v, on ? 1 : 0, prog(t, ct, ct + dur, ease));
+  }
+  return v;
+}
+
+/* ================================================================
+   The tutorial "video": an abstract landscape whose motion depends only
+   on video time, so it visibly freezes when paused and jumps on a seek.
+   ================================================================ */
+function ridge(x, seed, amp, scale) {
+  return amp * (Math.sin(x / scale + seed) * .55 + Math.sin(x / (scale * .43) + seed * 2.1) * .3 + Math.sin(x / (scale * .17) + seed * 3.7) * .15);
+}
+function drawArt(ctx, W, H, v) {
+  const k = W / 832;
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#1a1040'); sky.addColorStop(.45, '#5a2a78');
+  sky.addColorStop(.72, '#e0607e'); sky.addColorStop(1, '#f7b267');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+
+  // Stars live in the 832x468 design space and are scaled, so every size matches.
+  ctx.fillStyle = '#fff';
+  for (let i = 0; i < 60; i++) {
+    const x = (((i * 137.5 - v * 6) % 832) + 832) % 832 * k;
+    const y = (i * 71.3) % (468 * .42) * k;
+    ctx.globalAlpha = .35 + .6 * Math.abs(Math.sin(i * 12.9 + v * 1.3));
+    ctx.beginPath(); ctx.arc(x, y, (i % 3 ? 1 : 1.6) * k, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  const sx = W * .62, sy = H * (.58 - .02 * Math.sin(v * .5)), sr = H * .24;
+  const sun = ctx.createLinearGradient(0, sy - sr, 0, sy + sr);
+  sun.addColorStop(0, '#ffe29a'); sun.addColorStop(1, '#ff6b8b');
+  ctx.save(); ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 7); ctx.clip();
+  ctx.fillStyle = sun; ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
+  ctx.fillStyle = '#e0607e';
+  for (let i = 0; i < 7; i++) ctx.fillRect(sx - sr, sy + sr * (.05 + i * .14) + (v * 6 * k) % (sr * .14), sr * 2, (i + 1) * .9 * k);
+  ctx.restore();
+
+  const layers = [[.62, .07, 140, 22, '#3b1f5c', 1], [.70, .06, 110, 46, '#2a1646', 4], [.80, .05, 80, 90, '#1a0e30', 7]];
+  for (const [base, amp, scale, speed, color, seed] of layers) {
+    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 4) ctx.lineTo(x, H * base - ridge(x / k + v * speed, seed, H * amp, scale));
+    ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+  }
+
+  const hy = H * .84;
+  ctx.fillStyle = '#12091f'; ctx.fillRect(0, hy, W, H - hy);
+  ctx.strokeStyle = 'rgba(255,107,139,.55)'; ctx.lineWidth = 1.5 * k;
+  for (let i = -12; i <= 12; i++) { ctx.beginPath(); ctx.moveTo(W / 2 + i * W * .02, hy); ctx.lineTo(W / 2 + i * W * .16, H); ctx.stroke(); }
+  for (let i = 0; i < 7; i++) {
+    const d = Math.pow((i + (v * .9) % 1) / 7, 2.2);
+    ctx.globalAlpha = .25 + .6 * d;
+    ctx.beginPath(); ctx.moveTo(0, hy + d * (H - hy)); ctx.lineTo(W, hy + d * (H - hy)); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // The tutorial's lower-third, so a jump back is visibly a jump to an earlier step.
+  let step = TL.video.steps[0][1];
+  for (const [at, label] of TL.video.steps) if (v >= at) step = label;
+  ctx.font = `600 ${Math.round(24 * k)}px "Segoe UI", sans-serif`;
+  const tw = ctx.measureText(step).width;
+  ctx.fillStyle = 'rgba(0,0,0,.6)';
+  ctx.fillRect(24 * k, 24 * k, tw + 36 * k, 46 * k);
+  ctx.fillStyle = '#f33c3c'; ctx.fillRect(24 * k, 24 * k, 5 * k, 46 * k);
+  ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+  ctx.fillText(step, 42 * k, 47 * k);
+}
+
+/* ================================================================
+   Engine — derives the whole frame from t.
+   ================================================================ */
+const art = $('art').getContext('2d');
+const pipArt = $('pipArt').getContext('2d');
+const fx = $('fx').getContext('2d');
+const world = $('world');
+let camera = { x: 0, y: 0, s: 1 };
+
+// Video clock: plays at 1x between play/pause changes; seeks ease in over 0.3 s.
+function playbackAt(t) {
+  let v = TL.video.start, playing = TL.startPlaying, last = 0, lastSeek = null;
+  for (const e of TL.playback) {
+    if (e.t > t) break;
+    if ('play' in e) {
+      if (playing) v += e.t - last;
+      last = e.t; playing = e.play;
+    }
+  }
+  if (playing) v += t - last;
+  for (const e of TL.playback) {
+    if (!('seek' in e) || e.t > t) continue;
+    v += e.seek * prog(t, e.t, e.t + .3, easeOut);
+    lastSeek = e;
+  }
+  const pausedAmt = stateAmount(t, TL.playback.filter(e => 'play' in e).map(e => [e.t, !e.play]), !TL.startPlaying, .2);
+  return { v, playing, pausedAmt, lastSeek };
+}
+const videoAt = t => playbackAt(t).v;
+
+// Where an element sits in world coordinates, undoing the camera.
+function worldRect(el) {
+  const r = el.getBoundingClientRect();
+  return { x: (r.left - camera.x) / camera.s, y: (r.top - camera.y) / camera.s, w: r.width / camera.s, h: r.height / camera.s };
+}
+
+function renderCamera(t) {
+  const at = i => TL.camera.map(k => [k[0], k[i]]);
+  camera = { x: keys(t, at(1)), y: keys(t, at(2)), s: keys(t, at(3)) };
+  world.style.transform = `translate(${camera.x}px, ${camera.y}px) scale(${camera.s})`;
+}
+
+function renderPlayer(t, pb, pipAmt) {
+  const V = TL.video;
+  if (!$('vtitle').textContent) {
+    $('vtitle').textContent = V.title; $('tabYTTitle').textContent = V.title;
+    $('vchannel').textContent = V.channel; $('vurl').textContent = '/watch?v=' + V.id;
+  }
+  const frac = clamp(pb.v / V.length);
+  if (pipAmt < 1) {
+    drawArt(art, 832, 468, pb.v);
+    $('art').style.filter = pb.pausedAmt ? `saturate(${1 - .45 * pb.pausedAmt}) brightness(${1 - .2 * pb.pausedAmt})` : '';
+  }
+  if (pipAmt > 0) drawArt(pipArt, 500, 281, pb.v);
+  $('pipPlaceholder').style.opacity = clamp(pipAmt * 1.5);
+
+  $('pplay').className = 'pbtn ' + (pb.playing ? 'ic-pause' : 'ic-play');
+  $('pfill').style.width = frac * 100 + '%';
+  $('pknob').style.left = frac * 100 + '%';
+  setText($('ptime'), `${fmt(pb.v)} / ${fmt(V.length)}`);
+  $('pipFill').style.width = frac * 100 + '%';
+  setText($('pipTime'), fmt(pb.v));
+
+  const big = $('pbig');
+  big.style.opacity = pb.pausedAmt * (1 - pipAmt);
+  big.style.transform = `scale(${lerp(.8, 1, pb.pausedAmt)})`;
+
+  // A white tick stays where the playhead was before a seek, then fades.
+  for (const el of [$('pghost'), $('pipGhost')]) {
+    const s = pb.lastSeek;
+    if (s && t - s.t < .6) {
+      el.style.left = clamp(videoAt(s.t) / V.length) * 100 + '%';
+      el.style.opacity = 1 - (t - s.t) / .6;
+    } else el.style.opacity = 0;
+  }
+}
+
+// Tabs move like Chrome's: a pinned tab shrinks to its icon and moves to the far left.
+// The pinning tab is drawn above its neighbours and lifts slightly, so the overlap reads as motion.
+function renderTabs(t, pb) {
+  const p = stateAmount(t, TL.pinned, TL.startPinned, .5);
+  const W = 240, G = 4, PW = 52, x0 = 10;
+  const yt = $('tabYT'), docs = $('tabDocs'), issue = $('tabIssue');
+  Object.assign(yt.style, {
+    left: lerp(x0 + W + G, x0, p) + 'px', width: lerp(W, PW, p) + 'px', zIndex: 2,
+    top: 8 - 6 * Math.sin(Math.PI * p) + 'px', paddingLeft: lerp(14, 17, p) + 'px',
+    boxShadow: p > 0 && p < 1 ? `0 4px 14px rgba(0,0,0,${.5 * Math.sin(Math.PI * p)})` : '',
+  });
+  Object.assign(docs.style, { left: lerp(x0, x0 + PW + 8, p) + 'px', width: W + 'px' });
+  Object.assign(issue.style, { left: lerp(x0 + 2 * (W + G), x0 + PW + 8 + W + G, p) + 'px', width: W + 'px' });
+  const fade = 1 - clamp(p * 3);
+  for (const sel of ['.title', '.close']) {
+    const el = yt.querySelector(sel);
+    el.style.opacity = fade; el.style.display = p > .6 ? 'none' : '';
+  }
+  // Chrome's "playing audio" bars, only while sound is playing.
+  const sp = $('speaker');
+  sp.style.display = p > .6 ? 'none' : 'flex';
+  sp.style.opacity = (1 - pb.pausedAmt) * fade;
+  [...sp.children].forEach((b, i) => b.style.height = 4 + 9 * Math.abs(Math.sin(t * 7 + i * 1.9)) + 'px');
+}
+
+function renderPip(t) {
+  const amt = stateAmount(t, TL.pip, false, .6, easeOut);
+  const pip = $('pip');
+  const from = { x: 104, y: 286, w: 832 }, to = { x: 1340, y: 590, w: 500 };
+  pip.style.left = lerp(from.x, to.x, amt) + 'px';
+  pip.style.top = lerp(from.y, to.y, amt) + 'px';
+  pip.style.transform = `scale(${lerp(from.w, to.w, amt) / to.w})`;
+  pip.style.borderRadius = lerp(0, 10, amt) + 'px';
+  pip.style.opacity = amt > .001 ? clamp(amt * 4) : 0;
+  return amt;
+}
+
+// Chrome shrinks into its taskbar button (bottom-left, clear of the keycaps);
+// the button gives a little bounce when it lands.
+function renderWindows(t) {
+  const m = stateAmount(t, TL.minimized, false, .6, easeIn);
+  const b = $('browser');
+  const r = worldRect($('tbBrowser'));
+  const target = { x: r.x + r.w / 2, y: r.y + r.h / 2 }, centre = { x: 80 + 620, y: 170 + 350 };
+  b.style.transformOrigin = '50% 50%';
+  b.style.transform = m ? `translate(${(target.x - centre.x) * m}px, ${(target.y - centre.y) * m}px) scale(${lerp(1, .04, m)})` : '';
+  b.style.opacity = 1 - clamp((m - .5) / .5);
+  b.style.visibility = m >= 1 ? 'hidden' : 'visible';
+  const land = TL.minimized[0][0] + .6;
+  const bounce = t > land && t < land + .3 ? Math.sin((t - land) / .3 * Math.PI) : 0;
+  $('tbBrowser').style.transform = `translateY(${-8 * bounce}px)`;
+}
+
+function renderCode(t) {
+  const blink = Math.floor(t * 2) % 2 === 0;
+  let caretLine = CARET[0][1];
+  for (const [ct, line] of CARET) if (t >= ct) caretLine = line;
+  let typing = false;
+  const html = CODE.map((line, i) => {
+    const full = line.tok.reduce((n, [, s]) => n + s.length, 0);
+    let n = full;
+    if (line.reveal) {
+      const r = line.reveal;
+      n = Math.floor(keys(t, r, x => x));
+      for (let j = 1; j < r.length; j++) {
+        if (t > r[j - 1][0] && t < r[j][0] && r[j][1] !== r[j - 1][1] && i === caretLine) typing = true;
+      }
+    }
+    let out = '', left = n;
+    for (const [cls, s] of line.tok) {
+      if (left <= 0) break;
+      const part = esc(s.slice(0, left)); left -= s.length;
+      out += cls ? `<span class="${cls}">${part}</span>` : part;
+    }
+    if (i === caretLine) out += `<span class="caret" style="opacity:${typing || blink ? 1 : 0}"></span>`;
+    return `<span class="ln">${i + 1}</span>${out}`;
+  }).join('\n');
+  setHTML($('code'), html);
+}
+
+// Sam's call: rings, is answered, time-lapses to a believable length, ends.
+function renderCall(t) {
+  const C = TL.call, card = $('call');
+  const ringP = t % 1;
+  $('callRing').style.opacity = t < C.ringUntil ? .8 * (1 - ringP) : 0;
+  $('callRing').style.transform = `scale(${1 + ringP * .7})`;
+  let sub = 'Incoming call…';
+  if (t >= C.answered) {
+    const secs = t < C.lapse[0] ? t - C.answered
+      : t < C.lapse[1] ? lerp(C.lapse[0] - C.answered, C.length - 1, prog(t, C.lapse[0], C.lapse[1], easeIn))
+      : C.length - 1;
+    sub = `On call · ${fmt(secs)}`;
+  }
+  if (t >= C.ended) sub = `Call ended · ${fmt(C.length)}`;
+  setText($('callSub'), sub);
+  const flash = t >= C.answered && t < C.answered + .3;
+  $('callYes').style.background = flash ? '#5fd68f' : '#2fa866';
+  $('callNo').style.display = t >= C.answered ? 'none' : '';
+  $('callYes').style.display = t >= C.ended ? 'none' : '';
+  const out = prog(t, C.leave, C.leave + .4, easeIn);
+  card.style.transform = `translateX(${out * 480}px)`;
+  card.style.opacity = 1 - out;
+}
+
+// A keycap session keeps one row of keys up across several presses;
+// when the next press uses another key, only that cap flips over.
+const FLIP_LEAD = .85;
+function sessionState(t, s) {
+  const P = s.presses;
+  const switchTime = i => P[i].flipAt ?? Math.max(P[i - 1].t + .45, P[i].t - FLIP_LEAD);
+  let idx = 0, switchAt = null;
+  for (let i = 1; i < P.length; i++) if (t >= switchTime(i)) { idx = i; switchAt = switchTime(i); }
+  const nextAt = idx + 1 < P.length ? switchTime(idx + 1) : null;
+  return { idx, cur: P[idx], prev: idx ? P[idx - 1] : null, switchAt, next: nextAt != null ? P[idx + 1] : null, nextAt };
+}
+
+function renderKeys(t) {
+  const row = $('keyrow'), box = $('keys'), label = $('klabel');
+  const s = TL.keycaps.find(k => t >= k.a && t <= k.b);
+  if (!s) { row.style.opacity = 0; return 0; }
+  row.className = s.layout === 'left' ? 'left' : '';
+  const vis = window01(t, s.a, s.b, .3, .3);
+  const st = sessionState(t, s), cur = st.cur;
+  setHTML(box, cur.keys.map((k, i) => {
+    const custom = cur.custom && i === cur.keys.length - 1;
+    return `<div class="kc${custom ? ' custom' : ''}">${k}${custom ? '<span class="tag">your key</span>' : ''}</div>`;
+  }).join('<div class="kplus">+</div>'));
+  row.style.opacity = vis;
+  row.style.transform = `translateY(${(1 - vis) * 12}px)`;
+  setText(label, cur.label);
+  // The label only fades when it actually changes.
+  let lf = 1;
+  if (st.prev && st.prev.label !== cur.label) lf = Math.min(lf, prog(t, st.switchAt, st.switchAt + .2));
+  if (st.next && st.next.label !== cur.label) lf = Math.min(lf, 1 - prog(t, st.nextAt - .16, st.nextAt));
+  label.style.opacity = lf;
+
+  [...box.querySelectorAll('.kc')].forEach((kc, i, all) => {
+    let flip = 0;
+    if (st.prev && st.prev.keys[i] !== cur.keys[i]) flip = 1 - prog(t, st.switchAt, st.switchAt + .16, easeOut);
+    if (st.next && st.next.keys[i] !== cur.keys[i]) flip = Math.max(flip, prog(t, st.nextAt - .16, st.nextAt));
+    // Fingers go down one after another, then release together.
+    const down = cur.t - (all.length - 1 - i) * .13;
+    const d = t >= down && t < cur.t + .35 ? prog(t, down, down + .06, easeOut) * (1 - prog(t, cur.t + .23, cur.t + .35)) : 0;
+    kc.style.transform = `perspective(500px) translateY(${d * 7}px) rotateX(${flip * 90}deg)`;
+    kc.style.boxShadow = `0 ${9 - d * 7}px 0 #262a36, 0 ${16 - d * 10}px 30px rgba(0,0,0,.45)` +
+      (d ? `, 0 0 0 ${d * 4}px rgba(243,60,60,.9), 0 0 ${34 * d}px rgba(243,60,60,.5)` : '');
+    kc.style.background = d ? '#474d63' : '';
+    kc.style.color = d && i === all.length - 1 ? '#f33c3c' : '';
+  });
+  return vis;
+}
+
+function renderCaption(t) {
+  const el = $('caption');
+  const cur = TL.captions.find(c => t >= c.a && t <= c.b);
+  if (!cur) { el.style.opacity = 0; return 0; }
+  el.className = cur.layout === 'left' ? 'left' : '';
+  setHTML(el, (cur.kicker ? `<span class="kicker">${cur.kicker}</span>` : '') +
+    cur.text.split('\n').map(l => `<span class="line">${l}</span>`).join(''));
+  const vis = window01(t, cur.a, cur.b, .3, .25);
+  el.style.opacity = vis;
+  el.style.transform = `translateY(${(1 - prog(t, cur.a, cur.a + .4, easeOut)) * 14}px)`;
+  return cur.layout === 'left' ? 0 : vis;
+}
+
+const PIN_SVG = '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M9 3h6l-1 6 4 4H6l4-4z M12 13v8" fill="#fff" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>';
+const calloutEls = TL.callouts.map(() => {
+  const el = document.createElement('div');
+  el.className = 'callout';
+  el.innerHTML = '<div class="stem"></div><div class="pill"></div>';
+  $('callouts').append(el);
+  return el;
+});
+
+function renderCallouts(t) {
+  TL.callouts.forEach((c, i) => {
+    const el = calloutEls[i];
+    if (t < c.a || t > c.b) { el.style.opacity = 0; return; }
+    const r = worldRect($(c.target)), st = el.firstChild, pill = el.lastChild, S = 24;
+    setHTML(pill, (c.icon === 'pin' ? PIN_SVG : '') + c.text);
+    const pw = pill.offsetWidth, ph = pill.offsetHeight;
+    let px, py, origin;
+    if (c.side === 'right') {
+      const cy = r.y + r.h / 2;
+      Object.assign(st.style, { left: r.x + r.w + 'px', top: cy - 1.5 + 'px', width: S + 'px', height: '3px' });
+      px = r.x + r.w + S; py = cy - ph / 2; origin = '0 50%';
+    } else {
+      const cx = r.x + r.w / 2;
+      Object.assign(st.style, { left: cx - 1.5 + 'px', top: r.y - S + 'px', width: '3px', height: S + 'px' });
+      px = clamp(cx - pw / 2, 16, 1904 - pw); py = r.y - S - ph; origin = '50% 100%';
+    }
+    pill.style.left = px + 'px'; pill.style.top = py + 'px';
+    pill.style.transformOrigin = origin;
+    pill.style.transform = `scale(${lerp(.85, 1, easeOutBack(clamp((t - c.a) / .35)))})`;
+    el.style.opacity = window01(t, c.a, c.b, .25, .25);
+  });
+}
+
+// Signal dots from the pressed key to what it controls, plus ring pulses.
+function renderFx(t) {
+  fx.clearRect(0, 0, 1920, 1080);
+  const s = TL.keycaps.find(k => t >= k.a && t <= k.b);
+  if (s) {
+    const cur = sessionState(t, s).cur, P = cur.t, D = .2;
+    if (t >= P && t <= P + D + .45) {
+      const caps = $('keys').querySelectorAll('.kc');
+      const kr = caps[caps.length - 1].getBoundingClientRect();
+      const tr = $(cur.target).getBoundingClientRect();
+      const a = { x: kr.left + kr.width / 2, y: kr.top }, b = { x: tr.left + tr.width / 2, y: tr.top + tr.height / 2 };
+      const c = { x: (a.x + b.x) / 2 + (b.x > a.x ? -120 : 120), y: Math.min(a.y, b.y) - 60 };
+      const bez = u => ({ x: (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * c.x + u * u * b.x, y: (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * c.y + u * u * b.y });
+      if (t <= P + D) {
+        const u = easeInOut((t - P) / D);
+        for (let k = 9; k >= 0; k--) {
+          const uk = u - k * .045;
+          if (uk < 0) continue;
+          const q = bez(uk);
+          fx.globalAlpha = (1 - k / 10) * .95;
+          fx.fillStyle = '#f33c3c';
+          fx.beginPath(); fx.arc(q.x, q.y, 9 * (1 - k / 12), 0, 7); fx.fill();
+        }
+      } else {
+        const k = (t - P - D) / .45;
+        fx.globalAlpha = .85 * (1 - k);
+        fx.strokeStyle = '#f33c3c'; fx.lineWidth = 3;
+        fx.beginPath(); fx.arc(b.x, b.y, 20 + 110 * easeOut(k), 0, 7); fx.stroke();
+      }
+      fx.globalAlpha = 1;
+    }
+  }
+  for (const [pt, id] of TL.pulses) {
+    if (t < pt || t > pt + .5) continue;
+    const k = (t - pt) / .5, r = $(id).getBoundingClientRect();
+    const sc = 1 + .7 * easeOut(k), w = r.width * sc, h = r.height * sc;
+    fx.globalAlpha = 1 - k; fx.strokeStyle = '#f33c3c'; fx.lineWidth = 3;
+    fx.beginPath(); fx.roundRect(r.left + r.width / 2 - w / 2, r.top + r.height / 2 - h / 2, w, h, 10); fx.stroke();
+    fx.globalAlpha = 1;
+  }
+}
+
+/* ---------- last beat: popup → chrome://extensions/shortcuts ---------- */
+$('scRows').innerHTML = SHORTCUT_ROWS.map(([desc, key, id]) => {
+  const pen = '<svg class="pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="#969caf" stroke-width="2" stroke-linejoin="round"/></svg>';
+  const field = key ? kbds(key) : '';
+  const scope = key ? '<span>Global</span><span>▾</span>' : '<span>In Chrome</span><span>▾</span>';
+  return `<div class="sc-row"${id ? ` id="${id}Row"` : ''}><span class="sc-desc">${desc}</span>` +
+    `<div class="sc-field"${id ? ` id="${id}Field"` : ''}>${field}${pen}</div>` +
+    `<div class="sc-scope${key ? ' global' : ' off'}"${id ? ` id="${id}Scope"` : ''}>${scope}</div></div>`;
+}).join('');
+
+function renderLastBeat(t) {
+  const d = prog(t, TL.dim, TL.dim + .4);
+  world.style.filter = d ? `brightness(${lerp(1, .5, d)}) blur(${6 * d}px)` : '';
+  $('dim').style.opacity = .45 * d;
+
+  const card = $('card'), C = TL.card, P = TL.popup, G = TL.page;
+  const ci = prog(t, C.a, C.a + .4, easeOut);
+  card.style.opacity = ci;
+  card.style.transform = `translateY(${(1 - ci) * 40}px)`;
+  if (!ci) { $('popup').style.opacity = 0; $('cursor').style.opacity = 0; return; }
+
+  // New tab from chrome.tabs.create, then the shortcuts page.
+  const nt = prog(t, G.newTab, G.newTab + .2, easeOut);
+  const ext = $('cExt');
+  ext.style.width = 240 * nt + 'px';
+  ext.style.opacity = nt;
+  ext.classList.toggle('active', nt > .5);
+  $('cYT').classList.toggle('active', nt <= .5);
+  setHTML($('cUrl'), nt > .5 ? '<b>chrome://extensions</b>/shortcuts' : '<b>youtube.com</b>/watch?v=' + TL.video.id);
+  $('cPageSC').style.opacity = nt;
+  $('cPageYT').style.opacity = 1 - nt;
+
+  const field = $('scMuteField'), scope = $('scMuteScope'), row = $('scMuteRow');
+  row.style.background = t >= G.focus - .1 ? 'rgba(255,255,255,.04)' : '';
+  field.classList.toggle('focus', t >= G.focus && t < G.global);
+  const pen = field.querySelector('.pen').outerHTML;
+  setHTML(field, (t >= G.fill ? kbds('3') : t >= G.focus ? '<span class="ph">Type a shortcut</span>' : '') + pen);
+  scope.classList.toggle('off', t < G.fill);
+  scope.classList.toggle('global', t >= G.global);
+  setHTML(scope, `<span>${t >= G.global ? 'Global' : 'In Chrome'}</span><span>▾</span>`);
+
+  // The popup drops open under the card's toolbar icon, and closes on click.
+  const pop = $('popup');
+  const icon = $('cExtIcon').getBoundingClientRect();
+  const o = prog(t, P.open, P.open + .3, easeOut) * (1 - prog(t, P.close, P.close + .15));
+  pop.style.left = icon.right - 620 + 'px';
+  pop.style.top = icon.bottom + 10 + 'px';
+  pop.style.transform = `scale(${.76 * lerp(.94, 1, o)})`;
+  pop.style.opacity = o;
+  [...$('extras').children].forEach((li, i) => {
+    const on = prog(t, P.rows + i * .15, P.rows + i * .15 + .2);
+    li.style.background = on ? `rgb(${lerp(33, 43, on)},${lerp(36, 47, on)},${lerp(48, 61, on)})` : '';
+    li.querySelector('.bar').style.opacity = on;
+  });
+  const btn = $('popBtn');
+  btn.style.background = t >= P.hover ? '#474d63' : '';
+  btn.style.transform = t >= P.press && t < P.press + .1 ? 'scale(.97)' : '';
+}
+
+function renderCursor(t) {
+  const C = TL.cursor, cur = $('cursor');
+  if (t < C.a || t > C.b) { cur.style.opacity = 0; return; }
+  const point = (id, fx = .5, fy = .55) => { const r = $(id).getBoundingClientRect(); return [r.left + r.width * fx, r.top + r.height * fy]; };
+  let pos = C.from, from = C.from;
+  for (const [t0, t1, id, px, py] of C.moves) {
+    if (t < t0) break;
+    const to = point(id, px, py);
+    pos = [lerp(from[0], to[0], prog(t, t0, t1)), lerp(from[1], to[1], prog(t, t0, t1))];
+    from = to;
+  }
+  cur.style.left = pos[0] + 'px';
+  cur.style.top = pos[1] + 'px';
+  cur.style.opacity = Math.min(prog(t, C.a, C.a + .2), 1 - prog(t, C.b - .3, C.b));
+  cur.style.transform = `scale(${C.clicks.some(c => t >= c && t < c + .12) ? .86 : 1})`;
+}
+
+function renderEndcard(t) {
+  const e = $('endcard'), a = TL.endcard;
+  $('brand').style.opacity = 1 - prog(t, a, a + .4);
+  if (t < a) { e.style.opacity = 0; return; }
+  e.style.opacity = prog(t, a, a + .4);
+  const rise = (id, d, dur = .4) => {
+    const p = prog(t, a + d, a + d + dur, easeOut);
+    $(id).style.opacity = p;
+    $(id).style.transform = `translateY(${(1 - p) * 14}px)`;
+  };
+  const ip = easeOutBack(clamp((t - a - .2) / .5));
+  $('endIcon').style.transform = `scale(${lerp(.8, 1, ip)})`;
+  $('endIcon').style.opacity = clamp((t - a - .2) / .25);
+  rise('endTitle', .5); rise('endTag', .7); rise('endChips', 1.3); rise('endFoot', 1.5); rise('endFoot2', 1.6);
+  const cp = easeOutBack(clamp((t - a - 1.0) / .4));
+  $('endCta').style.opacity = clamp((t - a - 1.0) / .2);
+  $('endCta').style.transform = `scale(${lerp(.9, 1, cp)})`;
+  $('endShine').style.left = lerp(-160, 700, prog(t, a + 2.1, a + 2.7)) + 'px';
+}
+
+window.DURATION = TL.duration;
+window.renderAt = t => {
+  renderCamera(t);
+  const pb = playbackAt(t);
+  const pipAmt = renderPip(t);
+  renderPlayer(t, pb, pipAmt);
+  renderTabs(t, pb);
+  renderWindows(t);
+  renderCode(t);
+  renderCall(t);
+  renderCallouts(t);
+  const kv = renderKeys(t);
+  const cv = renderCaption(t);
+  $('scrimTop').style.opacity = Math.max(cv, .6) * (1 - prog(t, TL.dim, TL.dim + .4));
+  $('scrimBot').style.opacity = clamp((camera.s - 1) / .2) * kv;
+  renderLastBeat(t);
+  renderCursor(t);
+  renderFx(t);
+  renderEndcard(t);
+};
+
+/* ================================================================
+   Audio cues for promo_audio.py: the same timeline, as event times.
+   ================================================================ */
+window.audioCues = () => {
+  const keyDowns = [], keyUps = [], dots = [];
+  for (const s of TL.keycaps) for (const p of s.presses) {
+    const n = p.keys.length, pan = s.layout === 'left' ? -.45 : 0;
+    p.keys.forEach((k, i) => {
+      keyDowns.push({ t: p.t - (n - 1 - i) * .13, key: k, pan: pan + (i - 1) * .08 });
+      keyUps.push({ t: p.t + .29 + i * .007, key: k, pan: pan + (i - 1) * .08 });
+    });
+    dots.push(p.t);
+  }
+  const typing = [];
+  for (const line of CODE) {
+    if (!line.reveal) continue;
+    const r = line.reveal;
+    let prev = Math.floor(keys(r[0][0], r, x => x));
+    for (let t = r[0][0]; t <= r[r.length - 1][0] + 1e-6; t += 1 / 480) {
+      const n = Math.floor(keys(t, r, x => x));
+      if (n > prev) { typing.push(+t.toFixed(4)); prev = n; }
+    }
+  }
+  return {
+    duration: TL.duration,
+    video: { start: TL.video.start, startPlaying: TL.startPlaying, events: TL.playback },
+    keyDowns, keyUps, dots, typing,
+    call: TL.call,
+    pin: TL.pinned.map(p => p[0]), pip: TL.pip.map(p => p[0]), minimize: TL.minimized.map(m => m[0]),
+    callouts: TL.callouts.map(c => c.a),
+    dim: TL.dim, card: TL.card.a, clicks: TL.cursor.clicks,
+    popup: TL.popup, page: TL.page, rows: 7, endcard: TL.endcard,
+  };
+};
+
+// Scrub by hand: open promo-video.html?scrub in a browser.
+if (location.search.includes('scrub')) {
+  const sc = $('scrub');
+  sc.style.display = 'block'; sc.max = TL.duration;
+  sc.oninput = () => renderAt(+sc.value);
+}
+renderAt(0);
+</script>
+</body>
+</html>

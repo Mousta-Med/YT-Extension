@@ -208,7 +208,10 @@ The extension automatically:
 - `content.js` - Content script for YouTube interaction
 - `popup.html` / `popup.js` - Toolbar popup listing current shortcut bindings
 - `icon{16,48,128}.png` - Extension icons
-- `store-assets/` - Chrome Web Store listing images and the scripts that generate them
+- `store-assets/` - Chrome Web Store listing images, the promo video, and the scripts that generate them.
+  The video is animated in `promo-video.html` and rendered by `build_promo_video.py`
+  (needs Chrome, ffmpeg and `pip install websockets numpy scipy`). The soundtrack is
+  synthesised by `promo_audio.py` from the same timeline, so there is no music licence to worry about
 - `LICENSE` - MIT license
 
 ## Customization

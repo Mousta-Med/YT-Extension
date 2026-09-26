@@ -8,3 +8,9 @@
 
 # Local preview render from store-assets/build_icons.py, not a listing asset
 store-assets/final-preview.png
+
+# Single-frame previews from build_promo_video.py --stills
+store-assets/promo-stills/
+
+# Python bytecode from the store-assets build scripts
+__pycache__/
